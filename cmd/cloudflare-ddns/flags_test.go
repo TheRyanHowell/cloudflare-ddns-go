@@ -115,10 +115,10 @@ func TestTokenFlagsFeedConfigValidation(t *testing.T) {
 		want    string
 		wantErr string
 	}{
-		{"environment alone is ambiguous", nil, "", "set only one of CLOUDFLARE_API_TOKEN, CLOUDFLARE_API_KEY"},
+		{"environment alone is ambiguous", nil, "", "set the API token only once, either directly or as a file"},
 		{"token flag overrides the environment", []string{"--token", "flag-token"}, "flag-token", ""},
 		{"token file flag overrides the environment", []string{"--token-file", tokenFile}, "file-token", ""},
-		{"both flags", []string{"--token", "a", "--token-file", tokenFile}, "", "set only one of CLOUDFLARE_API_TOKEN, CLOUDFLARE_API_TOKEN_FILE"},
+		{"both flags", []string{"--token", "a", "--token-file", tokenFile}, "", "set the API token only once, either directly or as a file"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -141,8 +141,8 @@ func TestFlagValuesGoThroughConfigValidation(t *testing.T) {
 	if code := a.execute(context.Background(), []string{"run", "--interval", "5"}); code != exitFailure {
 		t.Errorf("exit code = %d, want %d", code, exitFailure)
 	}
-	if !strings.Contains(stderr.String(), `SYNC_INTERVAL \"5\" must be a duration`) {
-		t.Errorf("stderr = %q, want the SYNC_INTERVAL validation error", stderr.String())
+	if !strings.Contains(stderr.String(), `sync interval \"5\" must be a duration`) {
+		t.Errorf("stderr = %q, want the sync interval validation error", stderr.String())
 	}
 }
 

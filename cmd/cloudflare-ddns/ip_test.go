@@ -68,7 +68,7 @@ func TestIPFailures(t *testing.T) {
 		want string
 	}{
 		{"provider fails", []string{"ip", "--providers", "amazon"}, "msg=exiting"},
-		{"unknown provider", []string{"ip", "--providers", "nope"}, `IP_PROVIDERS entry \"nope\" must be one of`},
+		{"unknown provider", []string{"ip", "--providers", "nope"}, `IP provider \"nope\" must be one of`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

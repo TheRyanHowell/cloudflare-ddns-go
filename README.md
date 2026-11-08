@@ -118,7 +118,7 @@ To update a record from cron every ten minutes:
 */10 * * * * cloudflare-ddns sync --token-file /etc/cloudflare-ddns/token --zone-id ZONE_ID --record-id RECORD_ID --record-name home.example.com
 ```
 
-Every flag in the table above falls back to its environment variable, and a flag you set wins. A flag left empty, such as an unset shell variable, falls back to the environment. Setting `--token` or `--token-file` makes the command ignore all the token variables, so a flag replaces the environment's token instead of clashing with it. Values go through the same validation either way, so an error names the variable even when the flag set it.
+Every flag in the table above falls back to its environment variable, and a flag you set wins. A flag left empty, such as an unset shell variable, falls back to the environment. Setting `--token` or `--token-file` makes the command ignore all the token variables, so a flag replaces the environment's token instead of clashing with it. Values go through the same validation either way, and errors describe the setting, such as `record TTL`, rather than a flag or variable.
 
 `--token` puts the secret in the process list, where other users on the machine can read it. Use `--token-file` or the environment instead.
 

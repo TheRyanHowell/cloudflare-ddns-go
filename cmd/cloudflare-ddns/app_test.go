@@ -78,7 +78,7 @@ func TestRunErrors(t *testing.T) {
 		env  map[string]string
 		want string
 	}{
-		{"missing config", nil, map[string]string{}, "CLOUDFLARE_API_TOKEN is not set"},
+		{"missing config", nil, map[string]string{}, "API token is not set"},
 		{"bad health address", []string{healthcheckCommand}, map[string]string{"HEALTH_ADDR": "nonsense"}, "invalid health address"},
 	}
 	for _, tt := range tests {

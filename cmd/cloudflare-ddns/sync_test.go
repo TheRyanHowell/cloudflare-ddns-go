@@ -138,8 +138,8 @@ func TestSyncFailuresExitWithOne(t *testing.T) {
 	}{
 		{"cloudflare rejects the token", func(f *fakeCloud, _ map[string]string) { f.cloudflareStatus = http.StatusForbidden }, "permanent sync failure"},
 		{"provider is down", func(f *fakeCloud, _ map[string]string) { f.providerStatus = http.StatusInternalServerError }, "msg=exiting"},
-		{"zone is missing", func(_ *fakeCloud, env map[string]string) { delete(env, "CLOUDFLARE_ZONE_ID") }, "CLOUDFLARE_ZONE_ID is not set"},
-		{"unknown provider", func(_ *fakeCloud, env map[string]string) { env["IP_PROVIDERS"] = "nope" }, "IP_PROVIDERS entry"},
+		{"zone is missing", func(_ *fakeCloud, env map[string]string) { delete(env, "CLOUDFLARE_ZONE_ID") }, "zone ID is not set"},
+		{"unknown provider", func(_ *fakeCloud, env map[string]string) { env["IP_PROVIDERS"] = "nope" }, "IP provider"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

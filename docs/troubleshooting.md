@@ -10,15 +10,15 @@ The configuration was rejected. The log line is `msg=exiting` with one of these 
 
 | Error | Fix |
 |---|---|
-| `CLOUDFLARE_... is not set` | Fill in the variable in `.env` |
-| `set only one of CLOUDFLARE_API_TOKEN, ...` | The token is set in more than one way. Keep either `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_API_TOKEN_FILE` |
-| `read CLOUDFLARE_API_TOKEN_FILE: ...` or `... is empty` | The token file is missing, unreadable by UID 65532, or empty |
-| `CLOUDFLARE_RECORD_NAME "home" must be the record's full name` | Use the full name, such as `home.example.com`, not `home` or `@` |
-| `IP_PROVIDERS entry "..." must be one of ...` | Use names from [IP providers](ip-providers.md), separated by commas |
-| `IP_PROVIDERS "..." has an empty entry` or `names "..." more than once` | Remove the stray comma or the duplicate |
-| `SYNC_INTERVAL "..." must be a duration between 30s and 24h0m0s` | Use a Go duration such as `10m` |
-| `CLOUDFLARE_RECORD_TTL "..." must be 1 (automatic) or between 30 and 86400 seconds` | Use `1` or a number of seconds in that range |
-| `health server: listen tcp ...` | `HEALTH_ADDR` is not a valid `host:port` or the port is in use. Use something like `127.0.0.1:8080` |
+| `API token is not set`, `zone ID is not set`, … | Set the missing setting, as a flag or in `.env` (see the README's configuration table) |
+| `set the API token only once, either directly or as a file` | The token is given both directly and as a file. Keep one |
+| `read API token file: ...` or `API token file "..." is empty` | The token file is missing, unreadable by UID 65532, or empty |
+| `record name "home" must be the record's full name` | Use the full name, such as `home.example.com`, not `home` or `@` |
+| `IP provider "..." must be one of ...` | Use names from [IP providers](ip-providers.md), separated by commas |
+| `IP providers "..." have an empty entry` or `name "..." more than once` | Remove the stray comma or the duplicate |
+| `sync interval "..." must be a duration between 30s and 24h0m0s` | Use a Go duration such as `10m` |
+| `record TTL "..." must be 1 (automatic) or between 30 and 86400 seconds` | Use `1` or a number of seconds in that range |
+| `health server: listen tcp ...` | The health address is not a valid `host:port` or the port is in use. Use something like `127.0.0.1:8080` |
 
 ## `permanent failure, exiting after a delay`
 
@@ -27,16 +27,16 @@ The daemon reached Cloudflare but cannot manage the record. It reports unhealthy
 | Error contains | Cause and fix |
 |---|---|
 | `unexpected status 401` or `403` | The token is wrong, expired or lacks permission. It needs **Zone → DNS → Edit** on this zone. For a user-owned token, check it with `curl -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/user/tokens/verify` |
-| `unexpected status 404` | `CLOUDFLARE_ZONE_ID` or `CLOUDFLARE_RECORD_ID` is wrong. List the zone's records with the `curl` command in the README and copy the `id` of the record you want |
+| `unexpected status 404` | The zone ID or record ID is wrong. List the zone's records with the `curl` command in the README and copy the `id` of the record you want |
 | `invalid DNS record: type "AAAA", want "A"` | The record ID points to a record that is not an `A` record |
-| `invalid DNS record: name "...", want "..."` | The record ID belongs to a different record than `CLOUDFLARE_RECORD_NAME`. Check both; the daemon refuses rather than renaming the wrong record |
+| `invalid DNS record: name "...", want "..."` | The record ID belongs to a different record than the configured record name. Check both; the daemon refuses rather than renaming the wrong record |
 | `invalid DNS record: no content` | The record has no address. Give it any IPv4 address in the dashboard and the daemon will correct it |
 
 ## `sync failed, will retry`
 
 A single sync failed and is retried at the next interval. Occasional lines are normal.
 
-- If it repeats with `unexpected status 400` and mentions the TTL, `CLOUDFLARE_RECORD_TTL` is below `60`, which only Enterprise plans accept. Use `1` (automatic) or `60` and above.
+- If it repeats with `unexpected status 400` and mentions the TTL, the record TTL is below `60`, which only Enterprise plans accept. Use `1` (automatic) or `60` and above.
 - If it repeats with `every public IP provider is cooling down after failures; next retry in ...`, no provider has answered for a while. See below.
 
 ## No provider answers

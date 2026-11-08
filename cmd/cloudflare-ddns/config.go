@@ -59,22 +59,22 @@ func loadConfig(getenv func(string) string) (config, error) {
 		return config{}, err
 	}
 	fields := []struct {
-		env string
-		dst *string
+		env, name string
+		dst       *string
 	}{
-		{"CLOUDFLARE_ZONE_ID", &cfg.zoneID},
-		{"CLOUDFLARE_RECORD_ID", &cfg.recordID},
-		{"CLOUDFLARE_RECORD_NAME", &cfg.recordName},
+		{"CLOUDFLARE_ZONE_ID", "zone ID", &cfg.zoneID},
+		{"CLOUDFLARE_RECORD_ID", "record ID", &cfg.recordID},
+		{"CLOUDFLARE_RECORD_NAME", "record name", &cfg.recordName},
 	}
 	for _, f := range fields {
 		v := envValue(getenv, f.env)
 		if v == "" {
-			return config{}, fmt.Errorf("%s is not set", f.env)
+			return config{}, fmt.Errorf("%s is not set", f.name)
 		}
 		*f.dst = v
 	}
 	if !strings.Contains(strings.TrimSuffix(cfg.recordName, "."), ".") {
-		return config{}, fmt.Errorf("CLOUDFLARE_RECORD_NAME %q must be the record's full name, such as home.example.com", cfg.recordName)
+		return config{}, fmt.Errorf("record name %q must be the record's full name, such as home.example.com", cfg.recordName)
 	}
 
 	if cfg.interval, err = syncInterval(getenv); err != nil {
@@ -101,7 +101,7 @@ func ipProviderList(getenv func(string) string) ([]string, error) {
 	for raw := range strings.SplitSeq(v, ",") {
 		name := strings.ToLower(strings.TrimSpace(raw))
 		if name == "" {
-			return nil, fmt.Errorf("IP_PROVIDERS %q has an empty entry", v)
+			return nil, fmt.Errorf("IP providers %q have an empty entry", v)
 		}
 		names = append(names, name)
 		// Validating each prefix reports the first bad entry, which is name.
@@ -115,9 +115,9 @@ func ipProviderList(getenv func(string) string) ([]string, error) {
 // ipProviderError describes why IP_PROVIDERS value v cannot name name.
 func ipProviderError(v, name string, err error) error {
 	if errors.Is(err, publicip.ErrDuplicateProvider) {
-		return fmt.Errorf("IP_PROVIDERS %q names %q more than once", v, name)
+		return fmt.Errorf("IP providers %q name %q more than once", v, name)
 	}
-	return fmt.Errorf("IP_PROVIDERS entry %q must be one of %s", name, strings.Join(publicip.Providers(), ", "))
+	return fmt.Errorf("IP provider %q must be one of %s", name, strings.Join(publicip.Providers(), ", "))
 }
 
 // syncInterval reads SYNC_INTERVAL as a Go duration, such as "10m".
@@ -128,7 +128,7 @@ func syncInterval(getenv func(string) string) (time.Duration, error) {
 	}
 	d, err := time.ParseDuration(v)
 	if err != nil || d < minSyncInterval || d > maxSyncInterval {
-		return 0, fmt.Errorf("SYNC_INTERVAL %q must be a duration between %s and %s", v, minSyncInterval, maxSyncInterval)
+		return 0, fmt.Errorf("sync interval %q must be a duration between %s and %s", v, minSyncInterval, maxSyncInterval)
 	}
 	return d, nil
 }
@@ -141,7 +141,7 @@ func recordTTL(getenv func(string) string) (int, error) {
 	}
 	ttl, err := strconv.Atoi(v)
 	if err != nil || (ttl != autoRecordTTL && (ttl < minRecordTTL || ttl > maxRecordTTL)) {
-		return 0, fmt.Errorf("CLOUDFLARE_RECORD_TTL %q must be %d (automatic) or between %d and %d seconds", v, autoRecordTTL, minRecordTTL, maxRecordTTL)
+		return 0, fmt.Errorf("record TTL %q must be %d (automatic) or between %d and %d seconds", v, autoRecordTTL, minRecordTTL, maxRecordTTL)
 	}
 	return ttl, nil
 }
@@ -166,10 +166,10 @@ func apiToken(getenv func(string) string) (string, error) {
 	}
 	switch len(set) {
 	case 0:
-		return "", errors.New("CLOUDFLARE_API_TOKEN is not set (or use CLOUDFLARE_API_TOKEN_FILE)")
+		return "", errors.New("API token is not set")
 	case 1:
 	default:
-		return "", fmt.Errorf("set only one of %s", strings.Join(set, ", "))
+		return "", errors.New("set the API token only once, either directly or as a file")
 	}
 	if set[0] != "CLOUDFLARE_API_TOKEN_FILE" {
 		return envValue(getenv, set[0]), nil
@@ -177,11 +177,11 @@ func apiToken(getenv func(string) string) (string, error) {
 	path := envValue(getenv, set[0])
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("read CLOUDFLARE_API_TOKEN_FILE: %w", err)
+		return "", fmt.Errorf("read API token file: %w", err)
 	}
 	token := strings.TrimSpace(string(data))
 	if token == "" {
-		return "", fmt.Errorf("CLOUDFLARE_API_TOKEN_FILE %q is empty", path)
+		return "", fmt.Errorf("API token file %q is empty", path)
 	}
 	return token, nil
 }
