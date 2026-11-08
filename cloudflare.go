@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"golang.org/x/net/idna"
 )
 
 const (
@@ -76,7 +78,7 @@ func (r *cloudflareRecord) Content(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("%w: no content", errInvalidRecord)
 	}
 	// Update writes recordName, so a record ID for another name would be renamed.
-	if !sameDNSName(resp.Result.Name, r.cfg.recordName) {
+	if !recordNameMatches(resp.Result.Name, r.cfg.recordName) {
 		return "", fmt.Errorf("%w: name %q, want %q", errInvalidRecord, resp.Result.Name, r.cfg.recordName)
 	}
 	return resp.Result.Content, nil
@@ -104,7 +106,31 @@ func (r *cloudflareRecord) Update(ctx context.Context, ip string) error {
 	return nil
 }
 
-// sameDNSName compares DNS names case-insensitively, ignoring a trailing dot.
-func sameDNSName(a, b string) bool {
-	return a != "" && strings.EqualFold(strings.TrimSuffix(a, "."), strings.TrimSuffix(b, "."))
+// apexName is how Cloudflare lets a record name refer to the zone apex.
+const apexName = "@"
+
+// recordNameMatches reports whether the record Cloudflare returned, always a
+// full ASCII name, is the one configured. The configured name may be full,
+// relative to the zone, the apex "@", or Unicode, as Cloudflare accepts all
+// of these. The zone name is not known here, so "@" cannot be checked.
+func recordNameMatches(returned, configured string) bool {
+	r, c := normalizeDNSName(returned), normalizeDNSName(configured)
+	switch {
+	case r == "":
+		return false
+	case c == apexName, r == c:
+		return true
+	default:
+		return strings.HasPrefix(r, c+".")
+	}
+}
+
+// normalizeDNSName lowercases name, drops a trailing dot and converts
+// Unicode labels to punycode.
+func normalizeDNSName(name string) string {
+	name = strings.ToLower(strings.TrimSuffix(name, "."))
+	if ascii, err := idna.ToASCII(name); err == nil {
+		return ascii
+	}
+	return name
 }
