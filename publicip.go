@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -221,8 +222,8 @@ type sourceFailure struct {
 
 // Current returns the first answer from a source that is not cooling down,
 // logging each failure, or every error joined if all the sources it tried
-// failed. Failures start cooldowns only when another source succeeds: if
-// every source fails, the local network is the likely cause.
+// failed. When every source fails, transport errors start no cooldown, since
+// the local network is the likely cause.
 func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 	now := f.now()
 	var failures []sourceFailure
@@ -249,11 +250,23 @@ func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 	}
 	errs := make([]error, len(failures))
 	for i, sf := range failures {
-		sf.ts.honourRetryAfter(now, sf.err)
-		f.logger.Warn("public IP source failed", "error", sf.err)
 		errs[i] = sf.err
+		if isTransportError(sf.err) {
+			sf.ts.honourRetryAfter(now, sf.err)
+			f.logger.Warn("public IP source failed", "error", sf.err)
+			continue
+		}
+		wait := sf.ts.recordFailure(now, sf.err)
+		f.logger.Warn("public IP source failed", "error", sf.err, "retry_in", wait)
 	}
 	return "", errors.Join(errs...)
+}
+
+// isTransportError reports whether err means no response arrived, such as a
+// DNS, connection, TLS or timeout failure.
+func isTransportError(err error) bool {
+	var ue *url.Error
+	return errors.As(err, &ue)
 }
 
 // nextRetry returns how long until the first source's cooldown ends.

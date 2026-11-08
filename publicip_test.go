@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -126,6 +127,9 @@ func newTestFallback(now *time.Time, sources ...ipSource) *fallbackLookup {
 	f.now = func() time.Time { return *now }
 	return f
 }
+
+// errUnreachable is a transport failure: no response arrived.
+var errUnreachable = fmt.Errorf("get public IP: %w", &url.Error{Op: "Get", URL: "https://example.test", Err: errFake})
 
 var testEpoch = time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
 
@@ -301,7 +305,7 @@ func TestFallbackLookupAllFailingStartsNoCooldown(t *testing.T) {
 	// When every provider fails, the local network is the likely cause, so no
 	// provider is charged and all are tried again at the next sync.
 	now := testEpoch
-	a, b := &stubSource{err: errFake}, &stubSource{err: errFake}
+	a, b := &stubSource{err: errUnreachable}, &stubSource{err: errUnreachable}
 	f := newTestFallback(&now, a, b)
 	for range 3 {
 		if _, err := f.Current(context.Background()); err == nil {
@@ -316,8 +320,8 @@ func TestFallbackLookupAllFailingStartsNoCooldown(t *testing.T) {
 
 func TestFallbackLookupOutageDoesNotEscalateCooldowns(t *testing.T) {
 	now := testEpoch
-	primary := &stubSource{ip: "1.1.1.1", errs: []error{errFake, errFake, errFake, errFake}}
-	secondary := &stubSource{ip: "2.2.2.2", errs: []error{errFake, errFake, errFake}}
+	primary := &stubSource{ip: "1.1.1.1", errs: []error{errUnreachable, errUnreachable, errUnreachable, errUnreachable}}
+	secondary := &stubSource{ip: "2.2.2.2", errs: []error{errUnreachable, errUnreachable, errUnreachable}}
 	f := newTestFallback(&now, primary, secondary)
 
 	// Three syncs of total outage, then the secondary recovers.
@@ -477,5 +481,40 @@ func assertPrimaryCalls(t *testing.T, f *fallbackLookup, now *time.Time, primary
 		if primary.calls != step.wantCalls {
 			t.Errorf("at %v: primary calls = %d, want %d", step.at, primary.calls, step.wantCalls)
 		}
+	}
+}
+
+func TestFallbackLookupChargesProvidersThatRespondedDuringOutage(t *testing.T) {
+	// A response proves the network works, so a provider that answered with an
+	// error is charged even when every provider fails. Only transport errors
+	// count as a local outage.
+	now := testEpoch
+	blocked := &stubSource{err: fmt.Errorf("get public IP: %w", &statusError{code: http.StatusForbidden, status: "403 Forbidden"})}
+	unreachable := &stubSource{err: errUnreachable}
+	f := newTestFallback(&now, blocked, unreachable)
+
+	if _, err := f.Current(context.Background()); err == nil {
+		t.Fatal("expected error")
+	}
+	now = now.Add(30 * time.Second)
+	if _, err := f.Current(context.Background()); err == nil {
+		t.Fatal("expected error")
+	}
+	if blocked.calls != 1 || unreachable.calls != 2 {
+		t.Errorf("calls = %d (blocked), %d (unreachable); want 1 and 2", blocked.calls, unreachable.calls)
+	}
+}
+
+func TestIsTransportErrorOnRealLookups(t *testing.T) {
+	refused := &publicIPLookup{client: http.DefaultClient, ipProvider: ipProvider{url: "http://127.0.0.1:1", extract: strings.TrimSpace}}
+	if _, err := refused.Current(context.Background()); !isTransportError(err) {
+		t.Errorf("refused connection: isTransportError(%v) = false, want true", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) }))
+	defer srv.Close()
+	forbidden := &publicIPLookup{client: srv.Client(), ipProvider: ipProvider{url: srv.URL, extract: strings.TrimSpace}}
+	if _, err := forbidden.Current(context.Background()); err == nil || isTransportError(err) {
+		t.Errorf("403 response: isTransportError(%v) = true, want false", err)
 	}
 }
