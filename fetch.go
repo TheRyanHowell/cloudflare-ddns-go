@@ -92,10 +92,7 @@ func parseRetryAfter(value string, now time.Time) time.Duration {
 	}
 	var d time.Duration
 	if secs, err := strconv.Atoi(value); err == nil {
-		if secs > int(maxRetryAfter/time.Second) {
-			return maxRetryAfter
-		}
-		d = time.Duration(secs) * time.Second
+		d = time.Duration(min(secs, int(maxRetryAfter/time.Second))) * time.Second
 	} else if at, err := http.ParseTime(value); err == nil {
 		d = at.Sub(now)
 	}
