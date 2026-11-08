@@ -57,6 +57,13 @@ The daemon serves `GET /healthz` on `HEALTH_ADDR`. It returns `200` while syncs 
 
 The Compose healthcheck runs `/cloudflare-ddns healthcheck`, which probes that endpoint from inside the container.
 
+## Documentation
+
+- [IP providers](docs/ip-providers.md): the providers, their networks, rate limits and default order
+- [Failure handling](docs/failure-handling.md): cooldowns, outages, permanent failures and the health window
+- [Troubleshooting](docs/troubleshooting.md): what the log messages mean and how to fix them
+- [Architecture](docs/architecture.md): how the code is organised and how a sync works
+
 ## Development
 
 Requires Go 1.27 or newer.
