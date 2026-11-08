@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -21,34 +20,27 @@ const (
 	healthcheckCommand = "healthcheck"
 )
 
-// run runs the daemon, or the health probe when args select it.
-func run(ctx context.Context, logger *slog.Logger, args []string, getenv func(string) string) error {
-	addr := healthAddr(getenv)
-	if len(args) > 0 {
-		if args[0] != healthcheckCommand {
-			return fmt.Errorf("unknown command %q", args[0])
-		}
-		return runHealthcheck(ctx, addr)
-	}
-
+// runDaemon runs the sync loop and the health server until one fails or ctx is
+// cancelled.
+func (a app) runDaemon(ctx context.Context, getenv func(string) string) error {
 	cfg, err := loadConfig(getenv)
 	if err != nil {
 		return err
 	}
 
-	lookup, err := publicip.New(cfg.providers, publicip.WithLogger(logger), publicip.WithInterval(cfg.interval))
+	lookup, err := publicip.New(cfg.providers, publicip.WithLogger(a.logger), publicip.WithInterval(cfg.interval))
 	if err != nil {
 		return fmt.Errorf("public IP lookup: %w", err)
 	}
 	state := health.New()
 	s := ddns.New(newRecord(cfg), lookup,
-		ddns.WithLogger(logger),
+		ddns.WithLogger(a.logger),
 		ddns.WithHealthReporter(state),
 		ddns.WithPermanentCheck(cloudflare.IsPermanent),
 		ddns.WithInterval(cfg.interval),
 	)
 
-	srv := health.NewServer(addr, state.Handler(healthStaleAfter(cfg.interval, len(cfg.providers))))
+	srv := health.NewServer(healthAddr(getenv), state.Handler(healthStaleAfter(cfg.interval, len(cfg.providers))))
 	return runAll(ctx, srv, s)
 }
 
@@ -84,8 +76,8 @@ func runAll(ctx context.Context, srv *http.Server, s *ddns.Syncer) error {
 	return g.Wait()
 }
 
-func runHealthcheck(ctx context.Context, addr string) error {
-	url, err := health.URL(addr)
+func (a app) runHealthcheck(ctx context.Context, getenv func(string) string) error {
+	url, err := health.URL(healthAddr(getenv))
 	if err != nil {
 		return err
 	}

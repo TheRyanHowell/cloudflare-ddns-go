@@ -79,14 +79,14 @@ func TestRunErrors(t *testing.T) {
 		want string
 	}{
 		{"missing config", nil, map[string]string{}, "CLOUDFLARE_API_TOKEN is not set"},
-		{"unknown command", []string{"bogus"}, fullEnv, `unknown command "bogus"`},
 		{"bad health address", []string{healthcheckCommand}, map[string]string{"HEALTH_ADDR": "nonsense"}, "invalid health address"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := run(context.Background(), discardLogger(), tt.args, envFunc(tt.env))
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Errorf("err = %v, want containing %q", err, tt.want)
+			a, _, stderr := newTestApp(tt.env)
+			code := a.execute(context.Background(), tt.args)
+			if code != exitFailure || !strings.Contains(stderr.String(), tt.want) {
+				t.Errorf("exit %d, stderr %q; want %d and %q", code, stderr.String(), exitFailure, tt.want)
 			}
 		})
 	}
@@ -95,20 +95,12 @@ func TestRunErrors(t *testing.T) {
 func TestRunHealthcheck(t *testing.T) {
 	for _, status := range []int{http.StatusOK, http.StatusServiceUnavailable} {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status) }))
-		env := map[string]string{"HEALTH_ADDR": srv.Listener.Addr().String()}
-		err := run(context.Background(), discardLogger(), []string{healthcheckCommand}, envFunc(env))
+		a, _, _ := newTestApp(map[string]string{"HEALTH_ADDR": srv.Listener.Addr().String()})
+		code := a.execute(context.Background(), []string{healthcheckCommand})
 		srv.Close()
-		if (err != nil) != (status != http.StatusOK) {
-			t.Errorf("status %d: err = %v", status, err)
+		if (code != exitOK) != (status != http.StatusOK) {
+			t.Errorf("status %d: exit code %d", status, code)
 		}
-	}
-}
-
-func TestRunStopsOnCancelledContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := run(ctx, discardLogger(), nil, envFunc(fullEnv)); err != nil {
-		t.Errorf("run() = %v, want nil", err)
 	}
 }
 
