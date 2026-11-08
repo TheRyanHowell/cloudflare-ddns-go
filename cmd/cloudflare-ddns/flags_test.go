@@ -149,6 +149,7 @@ func TestCommandsDeclareOnlyTheirFlags(t *testing.T) {
 		{nil, allFlagNames()},
 		{[]string{"run"}, allFlagNames()},
 		{[]string{"healthcheck"}, []string{"health-addr"}},
+		{[]string{"ip"}, []string{"providers"}},
 		{[]string{"version"}, nil},
 	}
 	for _, tt := range tests {

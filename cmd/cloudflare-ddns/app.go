@@ -28,9 +28,9 @@ func (a app) runDaemon(ctx context.Context, getenv func(string) string) error {
 		return err
 	}
 
-	lookup, err := publicip.New(cfg.providers, publicip.WithLogger(a.logger), publicip.WithInterval(cfg.interval))
+	lookup, err := a.newLookup(cfg.providers, cfg.interval)
 	if err != nil {
-		return fmt.Errorf("public IP lookup: %w", err)
+		return err
 	}
 	state := health.New()
 	s := ddns.New(newRecord(cfg), lookup,
@@ -42,6 +42,16 @@ func (a app) runDaemon(ctx context.Context, getenv func(string) string) error {
 
 	srv := health.NewServer(healthAddr(getenv), state.Handler(healthStaleAfter(cfg.interval, len(cfg.providers))))
 	return runAll(ctx, srv, s)
+}
+
+// newLookup builds the public IP lookup over the named providers.
+func (a app) newLookup(providers []string, interval time.Duration) (*publicip.Lookup, error) {
+	lookup, err := publicip.New(providers,
+		publicip.WithLogger(a.logger), publicip.WithInterval(interval), publicip.WithHTTPClient(a.httpClient))
+	if err != nil {
+		return nil, fmt.Errorf("public IP lookup: %w", err)
+	}
+	return lookup, nil
 }
 
 func newRecord(cfg config) *cloudflare.Record {

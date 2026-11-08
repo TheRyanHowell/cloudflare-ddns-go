@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 
 	"github.com/spf13/cobra"
 )
@@ -24,6 +25,9 @@ type app struct {
 	getenv         func(string) string
 	stdout, stderr io.Writer
 	logger         *slog.Logger
+	// httpClient carries the IP lookups and Cloudflare requests. Nil selects
+	// each package's own client.
+	httpClient *http.Client
 }
 
 // usageError is a wrong command line: an unknown command, a bad flag or a
@@ -69,6 +73,7 @@ func (a app) newRootCmd() *cobra.Command {
 	root.AddCommand(
 		a.newCommand("run", "Keep the record in sync until stopped (the default command)", settingNames(), a.runDaemon),
 		a.newCommand(healthcheckCommand, "Probe the running daemon's health endpoint", []string{"health-addr"}, a.runHealthcheck),
+		a.newCommand("ip", "Print the public IP address", []string{"providers"}, a.runIP),
 		a.newCommand("version", "Print the version", nil, a.runVersion),
 	)
 	return root
