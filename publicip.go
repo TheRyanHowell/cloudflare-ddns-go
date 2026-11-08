@@ -162,8 +162,8 @@ func newPublicIPSource(logger *slog.Logger, client *http.Client, names []string,
 }
 
 // fallbackLookup tries each source in order and returns the first address. A
-// source that fails is skipped until its cooldown ends. It is not safe for
-// concurrent use.
+// source that fails is skipped until its cooldown ends, unless it is the only
+// one. It is not safe for concurrent use.
 type fallbackLookup struct {
 	logger   *slog.Logger
 	sources  []*trackedSource
@@ -328,8 +328,9 @@ func (f *fallbackLookup) settle(sf sourceFailure, now time.Time, charge bool) {
 	if len(f.sources) == 1 {
 		// A cooldown would only fail the next sync, as there is nothing to fall
 		// back to, so only a Retry-After the provider sent applies.
-		sf.ts.until = now.Add(retryAfter(sf.err))
-		f.logger.Warn("public IP source failed", "error", sf.err)
+		wait := retryAfter(sf.err)
+		sf.ts.until = now.Add(wait)
+		f.logger.Warn("public IP source failed", "error", sf.err, "retry_in", wait)
 		return
 	}
 	if !charge {
