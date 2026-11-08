@@ -201,12 +201,11 @@ func (ts *trackedSource) recordFailure(now time.Time, err error) time.Duration {
 }
 
 // Current returns the first answer from a source that is not cooling down,
-// logging each failure that is covered by a later source, or every error
-// joined if all the sources it tried failed.
+// logging each failure, or every error joined if all the sources it tried failed.
 func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 	now := f.now()
 	var errs []error
-	for i, ts := range f.sources {
+	for _, ts := range f.sources {
 		if now.Before(ts.until) {
 			continue
 		}
@@ -219,9 +218,7 @@ func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 			return "", err
 		}
 		wait := ts.recordFailure(now, err)
-		if i < len(f.sources)-1 {
-			f.logger.Warn("public IP source failed", "error", err, "retry_in", wait)
-		}
+		f.logger.Warn("public IP source failed", "error", err, "retry_in", wait)
 		errs = append(errs, err)
 	}
 	if len(errs) == 0 {

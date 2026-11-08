@@ -164,8 +164,10 @@ func TestFallbackLookupAllFail(t *testing.T) {
 	if !errors.Is(err, errA) || !errors.Is(err, errB) {
 		t.Errorf("err = %v, want both source errors", err)
 	}
-	if strings.Contains(logs.String(), "b down") {
-		t.Errorf("logs %q repeat the last failure, which the caller logs", logs.String())
+	for _, want := range []string{"a down", "b down"} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("logs %q do not mention %q", logs.String(), want)
+		}
 	}
 }
 
