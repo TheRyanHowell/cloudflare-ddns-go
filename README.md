@@ -26,7 +26,7 @@ cp .env.example .env
 | `CLOUDFLARE_RECORD_NAME` | Yes | The record's full name, e.g. `home.example.com`. Unicode names are accepted |
 | `SYNC_INTERVAL` | No | How often to check the public IP, as a Go duration such as `10m`. Between `30s` and `24h` (default `5m`) |
 | `CLOUDFLARE_RECORD_TTL` | No | Record TTL in seconds: `1` for automatic, or `30` to `86400`. Cloudflare only accepts values below `60` on Enterprise plans (default `300`) |
-| `IP_PROVIDERS` | No | Comma-separated public IP providers, in the order to try them (default: every provider, in the order of the [IP providers](#ip-providers) table) |
+| `IP_PROVIDERS` | No | Comma-separated public IP providers, in the order to try them (default: all of them, see [IP providers](docs/ip-providers.md)) |
 | `HEALTH_ADDR` | No | Listen address for the health endpoint (default `127.0.0.1:8080`) |
 
 To find the record ID, list the zone's records:
@@ -43,42 +43,17 @@ docker compose up -d
 docker compose logs -f
 ```
 
-## Behaviour
+## How it works
 
 - Records are always written as DNS-only (not proxied), with the configured TTL.
-- Only IPv4 is supported. The IP lookup is forced over IPv4.
-- If an IP provider fails, the failure is logged and the next provider in `IP_PROVIDERS` is tried.
-- A provider that fails is skipped for the next sync, then the next 2, 4… syncs with each consecutive failure, up to about an hour (or one interval, if longer). One success resets it. If `IP_PROVIDERS` names a single provider, it is never skipped, since there is nothing to fall back to; it is asked at every sync even while it keeps failing, unless it sends `Retry-After`. A `Retry-After` header (for example on `429 Too Many Requests`) is honoured, up to 24 hours.
-- After 3 providers in a row cannot be reached, a sync stops rather than trying the rest (when providers that are not cooling down remain), and the next sync starts with the providers not yet asked. Those 3 are put on a normal cooldown once another provider answers.
-- If every provider fails in the same sync, those that could not be reached at all (DNS, connection, TLS or timeout errors) start no cooldown, since the local network is the likely cause, and are tried again at the next sync. A provider that answered with an error, such as `403` or `429`, still goes on cooldown.
-- If every provider is cooling down, the sync makes no requests and is retried at the next interval.
-- Temporary failures, such as network errors or Cloudflare `5xx` responses, are logged and retried on the next cycle.
-- Permanent failures are a rejected token (`401`/`403`), a missing record (`404`), a record that is not of type `A`, or a record whose name is not `CLOUDFLARE_RECORD_NAME` (a mistyped record ID would otherwise rename another record). The daemon logs the error, `/healthz` returns `503`, and the daemon exits with a non-zero status after an hour. Compose's `restart: always` then restarts it, so it retries hourly rather than in a tight loop.
-
-## IP providers
-
-| Name | Endpoint | Network | Notes |
-|---|---|---|---|
-| `cloudflare` | `https://api.cloudflare.com/cdn-cgi/trace` | Cloudflare (AS13335) | Falls back to `https://1.1.1.1/cdn-cgi/trace` if the hostname cannot be resolved |
-| `amazon` | `https://checkip.amazonaws.com/` | AWS (AS16509) | |
-| `akamai` | `https://whatismyip.akamai.com/` | Akamai (AS20940) | |
-| `opendns` | `https://doh.opendns.com/dns-query` | Cisco OpenDNS (AS36692) | Asks for `myip.opendns.com` over DNS-over-HTTPS |
-| `ripe` | `https://stat.ripe.net/data/whats-my-ip/data.json` | RIPE NCC (AS3333) | Asks clients to register above 1,000 requests a day |
-| `hetzner` | `https://ip.hetzner.com/` | Hetzner (AS24940) | |
-| `mullvad` | `https://am.i.mullvad.net/json` | Mullvad (AS39351) | |
-| `ipinfo` | `https://ipinfo.io/ip` | Google Cloud (AS396982) | Limited to 1,000 requests a day per IP without an account |
-| `ipify` | `https://api4.ipify.org/` | Cloudflare (AS13335) | |
-| `icanhazip` | `https://icanhazip.com/` | Cloudflare (AS13335) | Owned and run by Cloudflare |
-
-By default every provider is tried, in the order of this table. The first eight are on eight independent networks, so a single provider or network outage does not stop updates. The rate-limited `ipinfo` comes after them, and the two extra Cloudflare-backed providers come last. Set `IP_PROVIDERS` to use a subset or a different order. Networks are the autonomous system (ASN) announcing the address each endpoint resolved to over IPv4, checked against RIPEstat in November 2026. They may change.
-
-Only ipinfo documents a hard rate limit, and RIPEstat asks heavy users to register. ipify states it has no limit, and the others publish nothing. The cooldowns keep the daemon well within the limits either way: at the default 5-minute interval it makes at most 288 lookups a day, and later providers are only asked when earlier ones fail.
-
-Every provider is reached over HTTPS, so the answer is protected in transit. `opendns` uses DNS-over-HTTPS rather than plain DNS because `opendns.com` is not DNSSEC-signed, and OpenDNS generates the `myip.opendns.com` answer itself, so it could never be signed. For the same reason, Google's `o-o.myaddr.l.google.com` is not supported: it only works over plain, unauthenticated DNS.
+- Only IPv4 is supported.
+- The public IP comes from the first provider in `IP_PROVIDERS` that answers. Providers are reached over HTTPS, and the default list spans eight independent networks: `cloudflare`, `amazon`, `akamai`, `opendns`, `ripe`, `hetzner`, `mullvad`, `ipinfo`, `ipify` and `icanhazip`. See [IP providers](docs/ip-providers.md).
+- A provider that fails is skipped for a while, and a local network outage costs only a few requests per sync. See [failure handling](docs/failure-handling.md).
+- Temporary Cloudflare errors are retried at the next sync. A rejected token or a wrong record ID makes the daemon report unhealthy and exit after an hour, so it retries hourly.
 
 ## Health check
 
-The daemon serves `GET /healthz` on `HEALTH_ADDR`. It returns `200` while the last successful sync is less than two and a half sync intervals old plus an allowance for one slow sync, and `503` otherwise. The allowance is 30 seconds per IP provider plus 30 seconds for the record update, so the window is 18 minutes with the defaults.
+The daemon serves `GET /healthz` on `HEALTH_ADDR`. It returns `200` while syncs are succeeding and `503` once the last success is too old (18 minutes with the defaults) or after a permanent failure. The [failure handling](docs/failure-handling.md#health-window) page explains the window.
 
 The Compose healthcheck runs `/cloudflare-ddns healthcheck`, which probes that endpoint from inside the container.
 
