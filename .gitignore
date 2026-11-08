@@ -1,3 +1,4 @@
 .idea
 .env
 /cloudflare-ddns
+/cloudflare-ddns-go

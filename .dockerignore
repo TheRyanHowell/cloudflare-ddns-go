@@ -5,6 +5,7 @@
 .idea
 .golangci.yml
 /cloudflare-ddns
+/cloudflare-ddns-go
 *_test.go
 *.md
 LICENSE
