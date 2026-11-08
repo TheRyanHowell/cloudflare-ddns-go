@@ -240,18 +240,7 @@ func TestFallbackLookupSkipsProviderInCooldown(t *testing.T) {
 	primary := &stubSource{err: errFake}
 	f := newTestFallback(&now, primary, &stubSource{ip: "2.2.2.2"})
 
-	for _, step := range []struct {
-		at        time.Duration
-		wantCalls int
-	}{{0, 1}, {baseCooldown - time.Second, 1}, {baseCooldown, 2}} {
-		now = testEpoch.Add(step.at)
-		if got, err := f.Current(context.Background()); err != nil || got != "2.2.2.2" {
-			t.Fatalf("at %v: Current() = %q, %v", step.at, got, err)
-		}
-		if primary.calls != step.wantCalls {
-			t.Errorf("at %v: primary calls = %d, want %d", step.at, primary.calls, step.wantCalls)
-		}
-	}
+	assertPrimaryCalls(t, f, &now, primary, []callStep{{0, 1}, {baseCooldown - time.Second, 1}, {baseCooldown, 2}})
 }
 
 func TestFallbackLookupBacksOffOnRepeatedFailure(t *testing.T) {
@@ -260,18 +249,7 @@ func TestFallbackLookupBacksOffOnRepeatedFailure(t *testing.T) {
 	f := newTestFallback(&now, primary, &stubSource{ip: "2.2.2.2"})
 
 	// Failures at 0 and 1m give cooldowns of 1m then 2m, so 3m is the next try.
-	for _, step := range []struct {
-		at        time.Duration
-		wantCalls int
-	}{{0, 1}, {time.Minute, 2}, {3*time.Minute - time.Second, 2}, {3 * time.Minute, 3}} {
-		now = testEpoch.Add(step.at)
-		if _, err := f.Current(context.Background()); err != nil {
-			t.Fatalf("at %v: %v", step.at, err)
-		}
-		if primary.calls != step.wantCalls {
-			t.Errorf("at %v: primary calls = %d, want %d", step.at, primary.calls, step.wantCalls)
-		}
-	}
+	assertPrimaryCalls(t, f, &now, primary, []callStep{{0, 1}, {time.Minute, 2}, {3*time.Minute - time.Second, 2}, {3 * time.Minute, 3}})
 }
 
 func TestFallbackLookupSuccessResetsBackoff(t *testing.T) {
@@ -298,18 +276,7 @@ func TestFallbackLookupHonoursRetryAfter(t *testing.T) {
 	primary := &stubSource{err: limited}
 	f := newTestFallback(&now, primary, &stubSource{ip: "2.2.2.2"})
 
-	for _, step := range []struct {
-		at        time.Duration
-		wantCalls int
-	}{{0, 1}, {10*time.Minute - time.Second, 1}, {10 * time.Minute, 2}} {
-		now = testEpoch.Add(step.at)
-		if _, err := f.Current(context.Background()); err != nil {
-			t.Fatalf("at %v: %v", step.at, err)
-		}
-		if primary.calls != step.wantCalls {
-			t.Errorf("at %v: primary calls = %d, want %d", step.at, primary.calls, step.wantCalls)
-		}
-	}
+	assertPrimaryCalls(t, f, &now, primary, []callStep{{0, 1}, {10*time.Minute - time.Second, 1}, {10 * time.Minute, 2}})
 }
 
 func TestFallbackLookupAllCoolingDownMakesNoRequests(t *testing.T) {
@@ -448,4 +415,24 @@ func mustProvider(t *testing.T, name string) ipProvider {
 		t.Fatalf("provider %q missing", name)
 	}
 	return p
+}
+
+// callStep is a clock offset and the primary's expected call count after a lookup at it.
+type callStep struct {
+	at        time.Duration
+	wantCalls int
+}
+
+// assertPrimaryCalls runs a lookup at each step and checks how often primary was asked.
+func assertPrimaryCalls(t *testing.T, f *fallbackLookup, now *time.Time, primary *stubSource, steps []callStep) {
+	t.Helper()
+	for _, step := range steps {
+		*now = testEpoch.Add(step.at)
+		if _, err := f.Current(context.Background()); err != nil {
+			t.Fatalf("at %v: %v", step.at, err)
+		}
+		if primary.calls != step.wantCalls {
+			t.Errorf("at %v: primary calls = %d, want %d", step.at, primary.calls, step.wantCalls)
+		}
+	}
 }
