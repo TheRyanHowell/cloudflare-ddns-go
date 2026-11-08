@@ -36,7 +36,7 @@ func TestLoadConfig(t *testing.T) {
 	want := config{
 		apiKey: "key", zoneID: "zone", recordID: "record", recordName: "home.example.com",
 		interval: defaultSyncInterval, ttl: defaultRecordTTL,
-		providers: []string{"cloudflare", "amazon", "ipinfo", "akamai"},
+		providers: []string{"cloudflare", "amazon", "akamai", "opendns", "ipinfo", "ipify", "icanhazip"},
 	}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("loadConfig() = %+v, %v; want %+v", got, err, want)
@@ -111,7 +111,7 @@ func TestLoadConfigIPProviders(t *testing.T) {
 		want    []string
 		wantErr string
 	}{
-		{name: "default", want: []string{"cloudflare", "amazon", "ipinfo", "akamai"}},
+		{name: "default", want: []string{"cloudflare", "amazon", "akamai", "opendns", "ipinfo", "ipify", "icanhazip"}},
 		{name: "ordered and normalised", value: " Akamai , ipinfo,cloudflare ", want: []string{"akamai", "ipinfo", "cloudflare"}},
 		{name: "single", value: "amazon", want: []string{"amazon"}},
 		{name: "unknown", value: "amazon,example", wantErr: `"example"`},
@@ -134,5 +134,14 @@ func TestLoadConfigIPProviders(t *testing.T) {
 				t.Errorf("loadConfig() providers = %q, %v; want %q", got.providers, err, tt.want)
 			}
 		})
+	}
+}
+
+func TestDefaultIPProvidersIncludesEveryProvider(t *testing.T) {
+	names := strings.Split(defaultIPProviders, ",")
+	for name := range ipProviders {
+		if !slices.Contains(names, name) {
+			t.Errorf("default IP_PROVIDERS %q omits %q", defaultIPProviders, name)
+		}
 	}
 }

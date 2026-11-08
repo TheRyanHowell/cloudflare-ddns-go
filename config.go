@@ -39,7 +39,7 @@ const (
 )
 
 // defaultIPProviders is the lookup order unless IP_PROVIDERS is set.
-const defaultIPProviders = "cloudflare,amazon,ipinfo,akamai"
+const defaultIPProviders = "cloudflare,amazon,akamai,opendns,ipinfo,ipify,icanhazip"
 
 // defaultHealthAddr is where the health endpoint listens unless HEALTH_ADDR is set.
 const defaultHealthAddr = "127.0.0.1:8080"

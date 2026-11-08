@@ -26,7 +26,7 @@ cp .env.example .env
 | `CLOUDFLARE_RECORD_NAME` | Yes | Full record name, e.g. `home.example.com` |
 | `SYNC_INTERVAL` | No | How often to check the public IP, as a Go duration such as `10m`. Between `30s` and `24h` (default `5m`) |
 | `CLOUDFLARE_RECORD_TTL` | No | Record TTL in seconds: `1` for automatic, or `30` to `86400`. Cloudflare only accepts values below `60` on Enterprise plans (default `300`) |
-| `IP_PROVIDERS` | No | Comma-separated public IP providers, in the order to try them (default `cloudflare,amazon,ipinfo,akamai`). See [IP providers](#ip-providers) |
+| `IP_PROVIDERS` | No | Comma-separated public IP providers, in the order to try them (default: every provider, in the order of the [IP providers](#ip-providers) table) |
 | `HEALTH_ADDR` | No | Listen address for the health endpoint (default `127.0.0.1:8080`) |
 
 To find the record ID, list the zone's records:
@@ -57,19 +57,19 @@ docker compose logs -f
 
 | Name | Endpoint | Network | Notes |
 |---|---|---|---|
-| `cloudflare` | `https://api.cloudflare.com/cdn-cgi/trace` | Cloudflare | Default, first |
-| `amazon` | `https://checkip.amazonaws.com/` | AWS | Default, second |
-| `ipinfo` | `https://ipinfo.io/ip` | Google Cloud | Default, third. Limited to 1,000 requests a day per IP without an account |
-| `akamai` | `https://whatismyip.akamai.com/` | Akamai | Default, fourth |
+| `cloudflare` | `https://api.cloudflare.com/cdn-cgi/trace` | Cloudflare | |
+| `amazon` | `https://checkip.amazonaws.com/` | AWS | |
+| `akamai` | `https://whatismyip.akamai.com/` | Akamai | |
+| `opendns` | `https://doh.opendns.com/dns-query` | Cisco (OpenDNS) | Asks for `myip.opendns.com` over DNS-over-HTTPS |
+| `ipinfo` | `https://ipinfo.io/ip` | Google Cloud | Limited to 1,000 requests a day per IP without an account |
 | `ipify` | `https://api4.ipify.org/` | Cloudflare | |
 | `icanhazip` | `https://icanhazip.com/` | Cloudflare | Owned and run by Cloudflare |
-| `opendns` | `https://doh.opendns.com/dns-query` | Cisco (OpenDNS) | Asks for `myip.opendns.com` over DNS-over-HTTPS |
+
+By default every provider is tried, in the order of this table. The first five are on five independent networks, so a single provider or network outage does not stop updates. The rate-limited `ipinfo` comes after the unlimited independent providers, and the two extra Cloudflare-backed providers come last. Set `IP_PROVIDERS` to use a subset or a different order. Networks were identified from response headers and ownership in November 2026, and may change.
 
 Only ipinfo documents a rate limit. ipify states it has none, and the others publish nothing. The cooldowns keep the daemon well within the limits either way: at the default 5-minute interval it makes at most 288 lookups a day, and later providers are only asked when earlier ones fail.
 
 Every provider is reached over HTTPS, so the answer is protected in transit. `opendns` uses DNS-over-HTTPS rather than plain DNS because `opendns.com` is not DNSSEC-signed, and OpenDNS generates the `myip.opendns.com` answer itself, so it could never be signed. For the same reason, Google's `o-o.myaddr.l.google.com` is not supported: it only works over plain, unauthenticated DNS.
-
-The default order spans four independent networks, so a single provider or network outage does not stop updates. Networks were identified from response headers and ownership in November 2026, and may change.
 
 ## Health check
 
