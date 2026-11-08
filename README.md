@@ -54,25 +54,24 @@ curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
 ## Usage
 
 ```sh
-docker compose up -d
-docker compose logs -f
+make run      # build and start the daemon with Docker Compose
+make logs     # follow its logs
+make stop     # stop it
 ```
 
-### ARM
-
-On an ARM machine, such as a Raspberry Pi, the commands above build a native image. To pin the platform, for example when building on another machine, add the matching override:
-
-| File | Platform | Examples |
-|---|---|---|
-| `docker-compose.arm64.yml` | `linux/arm64` | Raspberry Pi 3, 4 or 5 on a 64-bit OS |
-| `docker-compose.armv7.yml` | `linux/arm/v7` | Raspberry Pi 2, 3 or 4 on a 32-bit OS |
-| `docker-compose.armv6.yml` | `linux/arm/v6` | Raspberry Pi Zero or 1 |
+`make run` detects this machine's architecture and builds a native image. It supports `linux/amd64`, `386`, `arm64`, `arm/v7`, `arm/v6`, `arm/v5`, `riscv64`, `ppc64le`, `s390x`, `mips64le` and `loong64`. To choose a platform yourself, for example when building on another machine, set `PLATFORM`:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.arm64.yml up -d
+make run PLATFORM=linux/arm/v7
 ```
 
-The Dockerfile cross-compiles, so building an ARM image on an x86 machine needs no emulation.
+Without `make`, use Docker Compose directly, setting `DOCKER_DEFAULT_PLATFORM` to pick a platform:
+
+```sh
+DOCKER_DEFAULT_PLATFORM=linux/arm64 docker compose up -d
+```
+
+Run `make help` for every target.
 
 ## How it works
 
@@ -182,12 +181,14 @@ func main() {
 Requires Go 1.27 or newer.
 
 ```sh
-go test -race ./...
-golangci-lint run
-go build -o cloudflare-ddns ./cmd/cloudflare-ddns
+make check    # tests with the race detector, golangci-lint and govulncheck
+make build    # build ./cloudflare-ddns
+make images   # build the image for every supported platform (needs a buildx builder)
 ```
 
-CI runs the tests, golangci-lint (including `gofmt` and `govet`), govulncheck and a Docker build for amd64, arm64, armv7 and armv6 on every push to `master` and on pull requests.
+The supported platforms are listed once, in `PLATFORMS` in the `Makefile`; add an architecture there to support it.
+
+CI runs the same checks and builds the image for every platform on each push to `master` and on pull requests.
 
 ## License
 
