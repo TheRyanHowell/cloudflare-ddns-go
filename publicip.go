@@ -13,10 +13,13 @@ import (
 )
 
 const (
-	// cloudflareTraceURL is the primary IP source. Its IPv4 literal avoids a DNS
-	// lookup and guarantees the request goes over IPv4.
+	// cloudflareTraceURL's IPv4 literal avoids a DNS lookup and guarantees the
+	// request goes over IPv4.
 	cloudflareTraceURL = "https://1.1.1.1/cdn-cgi/trace"
-	// icanhazipURL is the fallback IP source. Cloudflare runs it too.
+	amazonCheckIPURL   = "https://checkip.amazonaws.com/"
+	// ipifyURL is ipify's IPv4-only host.
+	ipifyURL = "https://api4.ipify.org/"
+	// icanhazipURL is run by Cloudflare.
 	icanhazipURL = "https://icanhazip.com/"
 	// traceIPKey prefixes the client address line in a Cloudflare trace.
 	traceIPKey = "ip="
@@ -73,12 +76,29 @@ func traceIP(body string) string {
 	return ""
 }
 
-// newPublicIPSource asks Cloudflare first and falls back to icanhazip.
-func newPublicIPSource(logger *slog.Logger, client *http.Client) *fallbackLookup {
-	return &fallbackLookup{logger: logger, sources: []ipSource{
-		&publicIPLookup{client: client, url: cloudflareTraceURL, extract: traceIP},
-		&publicIPLookup{client: client, url: icanhazipURL, extract: strings.TrimSpace},
-	}}
+// ipProvider is a public IP service and how to read its response.
+type ipProvider struct {
+	url     string
+	extract func(body string) string
+}
+
+// ipProviders are the services IP_PROVIDER and IP_FALLBACK_PROVIDER can name.
+var ipProviders = map[string]ipProvider{
+	"cloudflare": {url: cloudflareTraceURL, extract: traceIP},
+	"amazon":     {url: amazonCheckIPURL, extract: strings.TrimSpace},
+	"ipify":      {url: ipifyURL, extract: strings.TrimSpace},
+	"icanhazip":  {url: icanhazipURL, extract: strings.TrimSpace},
+}
+
+// newPublicIPSource tries the named providers in order. The names must be
+// keys of ipProviders.
+func newPublicIPSource(logger *slog.Logger, client *http.Client, names ...string) *fallbackLookup {
+	sources := make([]ipSource, 0, len(names))
+	for _, name := range names {
+		p := ipProviders[name]
+		sources = append(sources, &publicIPLookup{client: client, url: p.url, extract: p.extract})
+	}
+	return &fallbackLookup{logger: logger, sources: sources}
 }
 
 // fallbackLookup tries each source in order and returns the first address.

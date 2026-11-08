@@ -34,6 +34,7 @@ func TestLoadConfig(t *testing.T) {
 	want := config{
 		apiKey: "key", zoneID: "zone", recordID: "record", recordName: "home.example.com",
 		interval: defaultSyncInterval, ttl: defaultRecordTTL,
+		ipProvider: defaultIPProvider, ipFallbackProvider: defaultIPFallbackProvider,
 	}
 	if err != nil || got != want {
 		t.Fatalf("loadConfig() = %+v, %v; want %+v", got, err, want)
@@ -96,6 +97,38 @@ func TestLoadConfigTimings(t *testing.T) {
 			}
 			if err != nil || got.interval != tt.wantInterval || got.ttl != tt.wantTTL {
 				t.Errorf("loadConfig() = interval %v, ttl %d, err %v; want %v, %d", got.interval, got.ttl, err, tt.wantInterval, tt.wantTTL)
+			}
+		})
+	}
+}
+
+func TestLoadConfigIPProviders(t *testing.T) {
+	tests := []struct {
+		name, primary, fallback   string
+		wantPrimary, wantFallback string
+		wantErr                   string
+	}{
+		{name: "defaults", wantPrimary: "cloudflare", wantFallback: "amazon"},
+		{name: "custom", primary: " ipify ", fallback: "ICANHAZIP", wantPrimary: "ipify", wantFallback: "icanhazip"},
+		{name: "swapped", primary: "amazon", fallback: "cloudflare", wantPrimary: "amazon", wantFallback: "cloudflare"},
+		{name: "unknown primary", primary: "example", wantErr: "IP_PROVIDER"},
+		{name: "unknown fallback", fallback: "example", wantErr: "IP_FALLBACK_PROVIDER"},
+		{name: "fallback same as primary", primary: "amazon", wantErr: "IP_FALLBACK_PROVIDER"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := baseEnv()
+			env["IP_PROVIDER"] = tt.primary
+			env["IP_FALLBACK_PROVIDER"] = tt.fallback
+			got, err := loadConfig(func(k string) string { return env[k] })
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("err = %v, want containing %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil || got.ipProvider != tt.wantPrimary || got.ipFallbackProvider != tt.wantFallback {
+				t.Errorf("loadConfig() = %q, %q, %v; want %q, %q", got.ipProvider, got.ipFallbackProvider, err, tt.wantPrimary, tt.wantFallback)
 			}
 		})
 	}

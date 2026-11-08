@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +17,9 @@ type config struct {
 	recordName string
 	interval   time.Duration
 	ttl        int
+
+	ipProvider         string
+	ipFallbackProvider string
 }
 
 const (
@@ -32,6 +37,11 @@ const (
 	// minRecordTTL and maxRecordTTL are Cloudflare's bounds for an explicit TTL.
 	minRecordTTL = 30
 	maxRecordTTL = 86400
+)
+
+const (
+	defaultIPProvider         = "cloudflare"
+	defaultIPFallbackProvider = "amazon"
 )
 
 // defaultHealthAddr is where the health endpoint listens unless HEALTH_ADDR is set.
@@ -72,7 +82,28 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if cfg.ttl, err = recordTTL(getenv); err != nil {
 		return config{}, err
 	}
+	if cfg.ipProvider, err = ipProviderName(getenv, "IP_PROVIDER", defaultIPProvider); err != nil {
+		return config{}, err
+	}
+	if cfg.ipFallbackProvider, err = ipProviderName(getenv, "IP_FALLBACK_PROVIDER", defaultIPFallbackProvider); err != nil {
+		return config{}, err
+	}
+	if cfg.ipFallbackProvider == cfg.ipProvider {
+		return config{}, fmt.Errorf("IP_FALLBACK_PROVIDER %q must differ from IP_PROVIDER", cfg.ipFallbackProvider)
+	}
 	return cfg, nil
+}
+
+// ipProviderName reads key as a case-insensitive name from ipProviders.
+func ipProviderName(getenv func(string) string, key, def string) (string, error) {
+	name := strings.ToLower(strings.TrimSpace(getenv(key)))
+	if name == "" {
+		return def, nil
+	}
+	if _, ok := ipProviders[name]; !ok {
+		return "", fmt.Errorf("%s %q must be one of %s", key, name, strings.Join(slices.Sorted(maps.Keys(ipProviders)), ", "))
+	}
+	return name, nil
 }
 
 // syncInterval reads SYNC_INTERVAL as a Go duration, such as "10m".

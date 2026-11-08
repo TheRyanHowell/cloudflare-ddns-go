@@ -2,7 +2,7 @@
 
 A small daemon that keeps a Cloudflare DNS `A` record pointed at your host's public IPv4 address.
 
-Every 5 minutes (configurable) it looks up the current public IP from Cloudflare's [`1.1.1.1/cdn-cgi/trace`](https://1.1.1.1/cdn-cgi/trace), falling back to [icanhazip.com](https://icanhazip.com/) if that fails. It updates the record only when the address has changed. It ships as a static binary in a `scratch` container image.
+Every 5 minutes (configurable) it looks up the current public IP, from Cloudflare by default and Amazon if that fails. It updates the record only when the address has changed. It ships as a static binary in a `scratch` container image.
 
 ## Requirements
 
@@ -26,6 +26,8 @@ cp .env.example .env
 | `CLOUDFLARE_RECORD_NAME` | Yes | Full record name, e.g. `home.example.com` |
 | `SYNC_INTERVAL` | No | How often to check the public IP, as a Go duration such as `10m`. Between `30s` and `24h` (default `5m`) |
 | `CLOUDFLARE_RECORD_TTL` | No | Record TTL in seconds: `1` for automatic, or `30` to `86400`. Cloudflare only accepts values below `60` on Enterprise plans (default `300`) |
+| `IP_PROVIDER` | No | Public IP provider to ask first (default `cloudflare`). See [IP providers](#ip-providers) |
+| `IP_FALLBACK_PROVIDER` | No | Provider to ask when the first fails. Must differ from `IP_PROVIDER` (default `amazon`) |
 | `HEALTH_ADDR` | No | Listen address for the health endpoint (default `127.0.0.1:8080`) |
 
 To find the record ID, list the zone's records:
@@ -46,9 +48,20 @@ docker compose logs -f
 
 - Records are always written as DNS-only (not proxied), with the configured TTL.
 - Only IPv4 is supported. The IP lookup is forced over IPv4.
-- If the Cloudflare lookup fails, the failure is logged and icanhazip.com is used for that sync. Cloudflare also runs icanhazip.com, so the fallback covers one endpoint failing, not a Cloudflare-wide outage.
+- If the first IP provider fails, the failure is logged and the fallback provider is used for that sync.
 - Temporary failures, such as network errors or Cloudflare `5xx` responses, are logged and retried on the next cycle.
 - Permanent failures make the daemon exit with a non-zero status, so the problem shows up instead of being retried silently. These are a rejected token (`401`/`403`), a missing record (`404`), or a record that is not of type `A`. Compose's `restart: always` then restarts the container.
+
+## IP providers
+
+| Name | Endpoint | Notes |
+|---|---|---|
+| `cloudflare` | `https://1.1.1.1/cdn-cgi/trace` | Default. The IP literal needs no DNS lookup |
+| `amazon` | `https://checkip.amazonaws.com/` | Default fallback. Runs on AWS, so it does not depend on Cloudflare |
+| `ipify` | `https://api4.ipify.org/` | Served through Cloudflare |
+| `icanhazip` | `https://icanhazip.com/` | Run by Cloudflare |
+
+For the fallback to survive a Cloudflare outage, pair one Cloudflare-backed provider with `amazon`.
 
 ## Health check
 

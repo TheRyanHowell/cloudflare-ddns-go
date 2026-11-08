@@ -40,7 +40,7 @@ func run(ctx context.Context, logger *slog.Logger, args []string, getenv func(st
 	s := &syncer{
 		logger:            logger,
 		record:            &cloudflareRecord{client: &http.Client{Timeout: requestTimeout}, baseURL: cloudflareAPIBaseURL, cfg: cfg},
-		lookup:            newPublicIPSource(logger, newIPv4Client(requestTimeout)),
+		lookup:            newPublicIPSource(logger, newIPv4Client(requestTimeout), cfg.ipProvider, cfg.ipFallbackProvider),
 		health:            state,
 		interval:          cfg.interval,
 		startupRetryDelay: startupRetryDelay,

@@ -159,13 +159,38 @@ func TestFallbackLookupStopsWhenCancelled(t *testing.T) {
 	}
 }
 
-func TestNewPublicIPSourcePrefersCloudflare(t *testing.T) {
+func TestNewPublicIPSourceUsesProvidersInOrder(t *testing.T) {
 	var urls []string
-	for _, src := range newPublicIPSource(discardLogger(), http.DefaultClient).sources {
+	for _, src := range newPublicIPSource(discardLogger(), http.DefaultClient, "ipify", "cloudflare").sources {
 		urls = append(urls, src.(*publicIPLookup).url)
 	}
-	want := []string{cloudflareTraceURL, icanhazipURL}
+	want := []string{ipifyURL, cloudflareTraceURL}
 	if !slices.Equal(urls, want) {
 		t.Errorf("source order = %v, want %v", urls, want)
+	}
+}
+
+func TestIPProvidersParseTheirFormat(t *testing.T) {
+	bodies := map[string]string{
+		"cloudflare": "fl=1\nh=1.1.1.1\nip=9.8.7.6\nts=1\n",
+		"amazon":     "9.8.7.6\n",
+		"ipify":      "9.8.7.6",
+		"icanhazip":  "9.8.7.6\n",
+	}
+	if len(bodies) != len(ipProviders) {
+		t.Fatalf("test covers %d providers, want all %d", len(bodies), len(ipProviders))
+	}
+	for name, body := range bodies {
+		p, ok := ipProviders[name]
+		if !ok {
+			t.Errorf("provider %q missing", name)
+			continue
+		}
+		if !strings.HasPrefix(p.url, "https://") {
+			t.Errorf("provider %q url %q is not HTTPS", name, p.url)
+		}
+		if got := p.extract(body); got != "9.8.7.6" {
+			t.Errorf("provider %q extracted %q from %q", name, got, body)
+		}
 	}
 }
