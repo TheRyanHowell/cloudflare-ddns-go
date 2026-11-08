@@ -49,7 +49,7 @@ func (h *health) handler(staleAfter time.Duration) http.Handler {
 		failure := h.failure()
 		switch {
 		case failure != nil:
-			http.Error(w, "permanent failure: "+failure.Error(), http.StatusServiceUnavailable)
+			http.Error(w, "permanent failure; see the logs", http.StatusServiceUnavailable)
 		case !ok:
 			http.Error(w, "no successful sync yet", http.StatusServiceUnavailable)
 		case age > staleAfter:

@@ -165,7 +165,8 @@ func TestHealthReportsPermanentFailure(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	h.handler(time.Hour).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, healthPath, nil))
-	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "fake failure") {
-		t.Errorf("status %d body %q; want 503 naming the failure despite a recent success", rec.Code, rec.Body.String())
+	body := rec.Body.String()
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(body, "permanent failure") || strings.Contains(body, "fake failure") {
+		t.Errorf("status %d body %q; want 503 despite a recent success, without the error detail", rec.Code, body)
 	}
 }
