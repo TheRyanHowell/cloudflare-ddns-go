@@ -198,7 +198,7 @@ func TestRunPermanentUpdateFailureIsFatal(t *testing.T) {
 	revoked := &fetch.StatusError{Code: 401, Status: "401 Unauthorized"}
 	record := &fakeRecord{content: "1.1.1.1", updateErrs: []error{revoked}}
 	err := newTestSyncer(record, &fakeLookup{ips: []string{"2.2.2.2"}}).Run(context.Background())
-	if !errors.Is(err, errPermanentSync) || !errors.Is(err, revoked) {
+	if !errors.Is(err, ErrPermanent) || !errors.Is(err, revoked) {
 		t.Errorf("Run() = %v, want permanent sync failure wrapping %v", err, revoked)
 	}
 }

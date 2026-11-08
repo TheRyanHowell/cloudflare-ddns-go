@@ -9,9 +9,9 @@ import (
 	"time"
 )
 
-// errPermanentSync marks a record update that retrying cannot fix, such as a
-// revoked token. The daemon exits so the failure is visible.
-var errPermanentSync = errors.New("permanent sync failure")
+// ErrPermanent marks a sync failure that retrying cannot fix, such as a
+// revoked token.
+var ErrPermanent = errors.New("permanent sync failure")
 
 const (
 	defaultInterval          = 5 * time.Minute
@@ -171,7 +171,7 @@ func (s *Syncer) loop(ctx context.Context) error {
 		switch {
 		case ctx.Err() != nil:
 			return nil
-		case errors.Is(err, errPermanentSync):
+		case errors.Is(err, ErrPermanent):
 			return err
 		case err != nil:
 			s.logger.Warn("sync failed, will retry", "error", err)
@@ -233,7 +233,7 @@ func (s *Syncer) syncFrom(ctx context.Context, known string) (string, error) {
 	s.logger.Info("updating record", "from", known, "to", ip)
 	if err := s.record.Update(ctx, ip); err != nil {
 		if s.isPermanent(err) {
-			err = fmt.Errorf("%w: %w", errPermanentSync, err)
+			err = fmt.Errorf("%w: %w", ErrPermanent, err)
 		}
 		return known, err
 	}
