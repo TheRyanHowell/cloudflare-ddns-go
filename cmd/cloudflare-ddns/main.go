@@ -1,4 +1,4 @@
-// Command cloudflare-ddns-go keeps a Cloudflare A record pointed at this
+// Command cloudflare-ddns keeps a Cloudflare A record pointed at this
 // host's public IP address.
 package main
 

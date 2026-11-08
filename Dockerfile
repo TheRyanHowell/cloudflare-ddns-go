@@ -10,7 +10,7 @@ COPY . .
 # Cross-compile for the target platform rather than emulating it.
 ARG TARGETOS TARGETARCH TARGETVARIANT
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GOARM=${TARGETVARIANT#v} \
-    go build -trimpath -ldflags="-s -w" -o /cloudflare-ddns
+    go build -trimpath -ldflags="-s -w" -o /cloudflare-ddns ./cmd/cloudflare-ddns
 
 FROM scratch AS final
 
