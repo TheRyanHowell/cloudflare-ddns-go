@@ -360,11 +360,10 @@ func TestFallbackLookupCancellationIsNotAFailure(t *testing.T) {
 	}
 }
 
-func TestCloudflareProviderUsesHostname(t *testing.T) {
-	// The bare 1.1.1.1 host intermittently returns error 1034; see
-	// https://github.com/favonia/cloudflare-ddns/issues/985.
-	if got, want := mustProvider(t, "cloudflare").url, "https://api.cloudflare.com/cdn-cgi/trace"; got != want {
-		t.Errorf("cloudflare url = %q, want %q", got, want)
+func TestCloudflareProviderURLs(t *testing.T) {
+	p := mustProvider(t, "cloudflare")
+	if p.url != "https://api.cloudflare.com/cdn-cgi/trace" || p.dnsFallbackURL != "https://1.1.1.1/cdn-cgi/trace" {
+		t.Errorf("cloudflare urls = %q, %q; want the hostname, falling back to the IP literal", p.url, p.dnsFallbackURL)
 	}
 }
 
@@ -568,17 +567,16 @@ func dnsTestClient(srv *httptest.Server) *http.Client {
 
 func TestPublicIPLookupDNSFallback(t *testing.T) {
 	tests := []struct {
-		name        string
-		primary     string
-		status      int
-		wantIP      string
-		wantErr     bool
-		wantFetches int
+		name    string
+		primary string
+		status  int
+		wantIP  string
+		wantErr bool
 	}{
-		{name: "dns failure uses fallback", primary: "http://dns-fails.test/", status: http.StatusOK, wantIP: "9.8.7.6", wantFetches: 1},
-		{name: "http error does not", primary: "http://reachable.test/", status: http.StatusForbidden, wantErr: true, wantFetches: 1},
-		{name: "fallback failure is reported", primary: "http://dns-fails.test/", status: http.StatusForbidden, wantErr: true, wantFetches: 1},
-		{name: "fallback server error is reported", primary: "http://dns-fails.test/", status: http.StatusBadGateway, wantErr: true, wantFetches: 1},
+		{name: "dns failure uses fallback", primary: "http://dns-fails.test/", status: http.StatusOK, wantIP: "9.8.7.6"},
+		{name: "http error does not", primary: "http://reachable.test/", status: http.StatusForbidden, wantErr: true},
+		{name: "fallback failure is reported", primary: "http://dns-fails.test/", status: http.StatusForbidden, wantErr: true},
+		{name: "fallback server error is reported", primary: "http://dns-fails.test/", status: http.StatusBadGateway, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -592,19 +590,13 @@ func TestPublicIPLookupDNSFallback(t *testing.T) {
 
 			l := &publicIPLookup{client: dnsTestClient(srv), ipProvider: ipProvider{url: tt.primary, dnsFallbackURL: "http://fallback.test/", extract: strings.TrimSpace}}
 			got, err := l.Current(context.Background())
-			if got != tt.wantIP || (err != nil) != tt.wantErr || fetches != tt.wantFetches {
-				t.Errorf("Current() = %q, %v with %d fetches; want %q, error %v, %d fetches", got, err, fetches, tt.wantIP, tt.wantErr, tt.wantFetches)
+			if got != tt.wantIP || (err != nil) != tt.wantErr || fetches != 1 {
+				t.Errorf("Current() = %q, %v with %d fetches; want %q, error %v, 1 fetch", got, err, fetches, tt.wantIP, tt.wantErr)
 			}
 			// A host that answered with an error is not unreachable, even after a DNS failure.
 			if err != nil && isTransportError(err) {
 				t.Errorf("isTransportError(%v) = true; the answering host should be charged", err)
 			}
 		})
-	}
-}
-
-func TestCloudflareProviderFallsBackToIPLiteral(t *testing.T) {
-	if got, want := mustProvider(t, "cloudflare").dnsFallbackURL, "https://1.1.1.1/cdn-cgi/trace"; got != want {
-		t.Errorf("cloudflare dnsFallbackURL = %q, want %q", got, want)
 	}
 }

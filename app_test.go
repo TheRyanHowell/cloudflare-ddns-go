@@ -14,13 +14,12 @@ func envFunc(env map[string]string) func(string) string {
 	return func(k string) string { return env[k] }
 }
 
-var fullEnv = map[string]string{
-	"CLOUDFLARE_API_KEY":     "key",
-	"CLOUDFLARE_ZONE_ID":     "zone",
-	"CLOUDFLARE_RECORD_ID":   "record",
-	"CLOUDFLARE_RECORD_NAME": "home.example.com",
-	"HEALTH_ADDR":            "127.0.0.1:0",
-}
+// fullEnv is the required variables plus a health address any free port satisfies.
+var fullEnv = func() map[string]string {
+	env := baseEnv()
+	env["HEALTH_ADDR"] = "127.0.0.1:0"
+	return env
+}()
 
 func TestRunErrors(t *testing.T) {
 	tests := []struct {

@@ -18,6 +18,9 @@ func TestHealthAddr(t *testing.T) {
 	}
 }
 
+// defaultProviders is the expected order when IP_PROVIDERS is unset.
+var defaultProviders = []string{"cloudflare", "amazon", "akamai", "opendns", "ripe", "hetzner", "mullvad", "ipinfo", "ipify", "icanhazip"}
+
 // baseEnv returns the required variables, set.
 func baseEnv() map[string]string {
 	return map[string]string{
@@ -36,7 +39,7 @@ func TestLoadConfig(t *testing.T) {
 	want := config{
 		apiKey: "key", zoneID: "zone", recordID: "record", recordName: "home.example.com",
 		interval: defaultSyncInterval, ttl: defaultRecordTTL,
-		providers: []string{"cloudflare", "amazon", "akamai", "opendns", "ripe", "hetzner", "mullvad", "ipinfo", "ipify", "icanhazip"},
+		providers: defaultProviders,
 	}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("loadConfig() = %+v, %v; want %+v", got, err, want)
@@ -111,7 +114,7 @@ func TestLoadConfigIPProviders(t *testing.T) {
 		want    []string
 		wantErr string
 	}{
-		{name: "default", want: []string{"cloudflare", "amazon", "akamai", "opendns", "ripe", "hetzner", "mullvad", "ipinfo", "ipify", "icanhazip"}},
+		{name: "default", want: defaultProviders},
 		{name: "ordered and normalised", value: " Akamai , ipinfo,cloudflare ", want: []string{"akamai", "ipinfo", "cloudflare"}},
 		{name: "single", value: "amazon", want: []string{"amazon"}},
 		{name: "unknown", value: "amazon,example", wantErr: `"example"`},
