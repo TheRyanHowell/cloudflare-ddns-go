@@ -57,15 +57,15 @@ docker compose logs -f
 
 | Name | Endpoint | Network | Notes |
 |---|---|---|---|
-| `cloudflare` | `https://api.cloudflare.com/cdn-cgi/trace` | Cloudflare | |
-| `amazon` | `https://checkip.amazonaws.com/` | AWS | |
-| `akamai` | `https://whatismyip.akamai.com/` | Akamai | |
-| `opendns` | `https://doh.opendns.com/dns-query` | Cisco (OpenDNS) | Asks for `myip.opendns.com` over DNS-over-HTTPS |
-| `ipinfo` | `https://ipinfo.io/ip` | Google Cloud | Limited to 1,000 requests a day per IP without an account |
-| `ipify` | `https://api4.ipify.org/` | Cloudflare | |
-| `icanhazip` | `https://icanhazip.com/` | Cloudflare | Owned and run by Cloudflare |
+| `cloudflare` | `https://api.cloudflare.com/cdn-cgi/trace` | Cloudflare (AS13335) | |
+| `amazon` | `https://checkip.amazonaws.com/` | AWS (AS16509) | |
+| `akamai` | `https://whatismyip.akamai.com/` | Akamai (AS20940) | |
+| `opendns` | `https://doh.opendns.com/dns-query` | Cisco OpenDNS (AS36692) | Asks for `myip.opendns.com` over DNS-over-HTTPS |
+| `ipinfo` | `https://ipinfo.io/ip` | Google Cloud (AS396982) | Limited to 1,000 requests a day per IP without an account |
+| `ipify` | `https://api4.ipify.org/` | Cloudflare (AS13335) | |
+| `icanhazip` | `https://icanhazip.com/` | Cloudflare (AS13335) | Owned and run by Cloudflare |
 
-By default every provider is tried, in the order of this table. The first five are on five independent networks, so a single provider or network outage does not stop updates. The rate-limited `ipinfo` comes after the unlimited independent providers, and the two extra Cloudflare-backed providers come last. Set `IP_PROVIDERS` to use a subset or a different order. Networks were identified from response headers and ownership in November 2026, and may change.
+By default every provider is tried, in the order of this table. The first five are on five independent networks, so a single provider or network outage does not stop updates. The rate-limited `ipinfo` comes after the unlimited independent providers, and the two extra Cloudflare-backed providers come last. Set `IP_PROVIDERS` to use a subset or a different order. Networks are the autonomous system (ASN) announcing the address each endpoint resolved to over IPv4, checked against RIPEstat in November 2026. They may change.
 
 Only ipinfo documents a rate limit. ipify states it has none, and the others publish nothing. The cooldowns keep the daemon well within the limits either way: at the default 5-minute interval it makes at most 288 lookups a day, and later providers are only asked when earlier ones fail.
 
