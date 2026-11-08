@@ -69,6 +69,8 @@ func TestParseRetryAfter(t *testing.T) {
 		"Sun, 08 Nov 2026 12:10:00 GMT": 10 * time.Minute,
 		"Sun, 08 Nov 2026 11:00:00 GMT": 0,
 		"999999999":                     maxRetryAfter,
+		"99999999999999999999":          maxRetryAfter,
+		"-99999999999999999999":         0,
 	}
 	for in, want := range tests {
 		if got := parseRetryAfter(in, now); got != want {

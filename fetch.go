@@ -91,10 +91,18 @@ func parseRetryAfter(value string, now time.Time) time.Duration {
 		return 0
 	}
 	var d time.Duration
-	if secs, err := strconv.Atoi(value); err == nil {
+	secs, err := strconv.Atoi(value)
+	switch {
+	case err == nil:
 		d = time.Duration(min(secs, int(maxRetryAfter/time.Second))) * time.Second
-	} else if at, err := http.ParseTime(value); err == nil {
-		d = at.Sub(now)
+	case errors.Is(err, strconv.ErrRange):
+		if !strings.HasPrefix(value, "-") {
+			d = maxRetryAfter
+		}
+	default:
+		if at, err := http.ParseTime(value); err == nil {
+			d = at.Sub(now)
+		}
 	}
 	return min(max(d, 0), maxRetryAfter)
 }
