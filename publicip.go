@@ -16,7 +16,7 @@ const (
 	// cloudflareTraceURL is the primary IP source. Its IPv4 literal avoids a DNS
 	// lookup and guarantees the request goes over IPv4.
 	cloudflareTraceURL = "https://1.1.1.1/cdn-cgi/trace"
-	// icanhazipURL is the fallback IP source.
+	// icanhazipURL is the fallback IP source. Cloudflare runs it too.
 	icanhazipURL = "https://icanhazip.com/"
 	// traceIPKey prefixes the client address line in a Cloudflare trace.
 	traceIPKey = "ip="

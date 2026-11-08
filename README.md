@@ -46,7 +46,7 @@ docker compose logs -f
 
 - Records are always written as DNS-only (not proxied), with the configured TTL.
 - Only IPv4 is supported. The IP lookup is forced over IPv4.
-- If the Cloudflare lookup fails, the failure is logged and icanhazip.com is used for that sync.
+- If the Cloudflare lookup fails, the failure is logged and icanhazip.com is used for that sync. Cloudflare also runs icanhazip.com, so the fallback covers one endpoint failing, not a Cloudflare-wide outage.
 - Temporary failures, such as network errors or Cloudflare `5xx` responses, are logged and retried on the next cycle.
 - Permanent failures make the daemon exit with a non-zero status, so the problem shows up instead of being retried silently. These are a rejected token (`401`/`403`), a missing record (`404`), or a record that is not of type `A`. Compose's `restart: always` then restarts the container.
 
@@ -61,9 +61,12 @@ The Compose healthcheck runs `/cloudflare-ddns healthcheck`, which probes that e
 Requires Go 1.27 or newer.
 
 ```sh
-go test ./...
+go test -race ./...
+golangci-lint run
 go build -o cloudflare-ddns
 ```
+
+CI runs formatting, `go vet`, the tests, golangci-lint, govulncheck and a Docker build on every push to `master` and on pull requests.
 
 ## License
 
