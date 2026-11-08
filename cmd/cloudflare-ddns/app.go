@@ -33,7 +33,7 @@ func (a app) runDaemon(ctx context.Context, getenv func(string) string) error {
 		return err
 	}
 	state := health.New()
-	s := ddns.New(newRecord(cfg), lookup,
+	s := ddns.New(a.newRecord(cfg), lookup,
 		ddns.WithLogger(a.logger),
 		ddns.WithHealthReporter(state),
 		ddns.WithPermanentCheck(cloudflare.IsPermanent),
@@ -54,14 +54,14 @@ func (a app) newLookup(providers []string, interval time.Duration) (*publicip.Lo
 	return lookup, nil
 }
 
-func newRecord(cfg config) *cloudflare.Record {
+func (a app) newRecord(cfg config) *cloudflare.Record {
 	return cloudflare.NewRecord(cloudflare.RecordConfig{
 		Token:    cfg.apiToken,
 		ZoneID:   cfg.zoneID,
 		RecordID: cfg.recordID,
 		Name:     cfg.recordName,
 		TTL:      cfg.ttl,
-	})
+	}, cloudflare.WithHTTPClient(a.httpClient))
 }
 
 // healthStaleAfter allows two and a half sync intervals plus one slow sync, in

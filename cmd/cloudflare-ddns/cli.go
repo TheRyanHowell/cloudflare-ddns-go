@@ -73,6 +73,7 @@ func (a app) newRootCmd() *cobra.Command {
 	root.AddCommand(
 		a.newCommand("run", "Keep the record in sync until stopped (the default command)", settingNames(), a.runDaemon),
 		a.newCommand(healthcheckCommand, "Probe the running daemon's health endpoint", []string{"health-addr"}, a.runHealthcheck),
+		a.newCommand("sync", "Update the record once and exit", syncFlags, a.runSync),
 		a.newCommand("ip", "Print the public IP address", []string{"providers"}, a.runIP),
 		a.newCommand("version", "Print the version", nil, a.runVersion),
 	)

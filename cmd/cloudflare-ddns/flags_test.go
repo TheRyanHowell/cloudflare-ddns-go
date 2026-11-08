@@ -150,6 +150,7 @@ func TestCommandsDeclareOnlyTheirFlags(t *testing.T) {
 		{[]string{"run"}, allFlagNames()},
 		{[]string{"healthcheck"}, []string{"health-addr"}},
 		{[]string{"ip"}, []string{"providers"}},
+		{[]string{"sync"}, []string{"token", "token-file", "zone-id", "record-id", "record-name", "ttl", "providers"}},
 		{[]string{"version"}, nil},
 	}
 	for _, tt := range tests {
