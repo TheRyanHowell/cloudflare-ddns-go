@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-var testConfig = config{apiKey: "key", zoneID: "z", recordID: "r", recordName: "home.example.com"}
+var testConfig = config{apiKey: "key", zoneID: "z", recordID: "r", recordName: "home.example.com", ttl: 120}
 
 func newTestRecord(t *testing.T, h http.HandlerFunc) *cloudflareRecord {
 	t.Helper()
@@ -72,7 +72,7 @@ func TestCloudflareRecordUpdate(t *testing.T) {
 		if err := json.Unmarshal(raw, &got); err != nil {
 			t.Error(err)
 		}
-		want := recordRequest{Content: "5.6.7.8", Name: "home.example.com", Type: "A", TTL: 300}
+		want := recordRequest{Content: "5.6.7.8", Name: "home.example.com", Type: "A", TTL: 120}
 		if got != want {
 			t.Errorf("body = %+v, want %+v", got, want)
 		}

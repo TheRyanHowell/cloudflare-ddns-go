@@ -11,10 +11,6 @@ import (
 )
 
 const (
-	pollInterval = 5 * time.Minute
-	// healthStaleAfter is two and a half poll intervals: a missed poll or two
-	// does not flap the check, but a stuck daemon is reported within minutes.
-	healthStaleAfter = pollInterval * 5 / 2
 	// startupRetryDelay is the wait between attempts to read the record at startup.
 	startupRetryDelay = 30 * time.Second
 	requestTimeout    = 30 * time.Second
@@ -43,12 +39,18 @@ func run(ctx context.Context, logger *slog.Logger, args []string, getenv func(st
 		record:            &cloudflareRecord{client: &http.Client{Timeout: requestTimeout}, baseURL: cloudflareAPIBaseURL, cfg: cfg},
 		lookup:            &publicIPLookup{client: newIPv4Client(requestTimeout), url: publicIPURL},
 		health:            state,
-		interval:          pollInterval,
+		interval:          cfg.interval,
 		startupRetryDelay: startupRetryDelay,
 	}
 
-	srv := newHealthServer(addr, state.handler(healthStaleAfter))
+	srv := newHealthServer(addr, state.handler(healthStaleAfter(cfg.interval)))
 	return runAll(ctx, srv, s)
+}
+
+// healthStaleAfter is two and a half sync intervals: a missed sync or two does
+// not flap the check, but a stuck daemon is still reported.
+func healthStaleAfter(interval time.Duration) time.Duration {
+	return interval * 5 / 2
 }
 
 // runAll runs the health server and the syncer until either stops or ctx is

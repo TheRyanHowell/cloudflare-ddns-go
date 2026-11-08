@@ -13,7 +13,6 @@ import (
 const (
 	cloudflareAPIBaseURL = "https://api.cloudflare.com/client/v4"
 	recordType           = "A"
-	recordTTLSeconds     = 300
 )
 
 // errInvalidRecord marks a record that exists but cannot be managed.
@@ -83,7 +82,7 @@ func (r *cloudflareRecord) Update(ctx context.Context, ip string) error {
 		Content: ip,
 		Name:    r.cfg.recordName,
 		Type:    recordType,
-		TTL:     recordTTLSeconds,
+		TTL:     r.cfg.ttl,
 	})
 	if err != nil {
 		return fmt.Errorf("encode DNS record: %w", err)

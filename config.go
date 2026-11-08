@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // config holds the Cloudflare settings read from the environment.
@@ -11,7 +13,24 @@ type config struct {
 	zoneID     string
 	recordID   string
 	recordName string
+	interval   time.Duration
+	ttl        int
 }
+
+const (
+	// defaultSyncInterval is how often the public IP is checked unless SYNC_INTERVAL is set.
+	defaultSyncInterval = 5 * time.Minute
+	// minSyncInterval keeps the daemon from hammering the IP lookup services.
+	minSyncInterval = 30 * time.Second
+
+	// defaultRecordTTL is the record TTL in seconds unless CLOUDFLARE_RECORD_TTL is set.
+	defaultRecordTTL = 300
+	// autoRecordTTL tells Cloudflare to choose the TTL.
+	autoRecordTTL = 1
+	// minRecordTTL and maxRecordTTL are Cloudflare's bounds for an explicit TTL.
+	minRecordTTL = 30
+	maxRecordTTL = 86400
+)
 
 // defaultHealthAddr is where the health endpoint listens unless HEALTH_ADDR is set.
 const defaultHealthAddr = "127.0.0.1:8080"
@@ -43,5 +62,39 @@ func loadConfig(getenv func(string) string) (config, error) {
 		}
 		*f.dst = v
 	}
+
+	var err error
+	if cfg.interval, err = syncInterval(getenv); err != nil {
+		return config{}, err
+	}
+	if cfg.ttl, err = recordTTL(getenv); err != nil {
+		return config{}, err
+	}
 	return cfg, nil
+}
+
+// syncInterval reads SYNC_INTERVAL as a Go duration, such as "10m".
+func syncInterval(getenv func(string) string) (time.Duration, error) {
+	v := strings.TrimSpace(getenv("SYNC_INTERVAL"))
+	if v == "" {
+		return defaultSyncInterval, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d < minSyncInterval {
+		return 0, fmt.Errorf("SYNC_INTERVAL %q must be a duration of at least %s", v, minSyncInterval)
+	}
+	return d, nil
+}
+
+// recordTTL reads CLOUDFLARE_RECORD_TTL in seconds: 1 for automatic, or 30 to 86400.
+func recordTTL(getenv func(string) string) (int, error) {
+	v := strings.TrimSpace(getenv("CLOUDFLARE_RECORD_TTL"))
+	if v == "" {
+		return defaultRecordTTL, nil
+	}
+	ttl, err := strconv.Atoi(v)
+	if err != nil || (ttl != autoRecordTTL && (ttl < minRecordTTL || ttl > maxRecordTTL)) {
+		return 0, fmt.Errorf("CLOUDFLARE_RECORD_TTL %q must be %d (automatic) or between %d and %d seconds", v, autoRecordTTL, minRecordTTL, maxRecordTTL)
+	}
+	return ttl, nil
 }
