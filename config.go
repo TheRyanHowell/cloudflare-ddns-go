@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -37,9 +36,6 @@ const (
 	minRecordTTL = 30
 	maxRecordTTL = 86400
 )
-
-// defaultIPProviders is the lookup order unless IP_PROVIDERS is set.
-const defaultIPProviders = "cloudflare,amazon,akamai,opendns,ipinfo,ipify,icanhazip"
 
 // defaultHealthAddr is where the health endpoint listens unless HEALTH_ADDR is set.
 const defaultHealthAddr = "127.0.0.1:8080"
@@ -86,11 +82,12 @@ func loadConfig(getenv func(string) string) (config, error) {
 }
 
 // ipProviderList reads IP_PROVIDERS, a comma-separated, case-insensitive list
-// of distinct names from ipProviders in the order to try them.
+// of distinct names from ipProviders in the order to try them. Unset means
+// every provider in the default order.
 func ipProviderList(getenv func(string) string) ([]string, error) {
 	v := strings.TrimSpace(getenv("IP_PROVIDERS"))
 	if v == "" {
-		v = defaultIPProviders
+		return providerNames(), nil
 	}
 	var names []string
 	for raw := range strings.SplitSeq(v, ",") {
@@ -101,8 +98,8 @@ func ipProviderList(getenv func(string) string) ([]string, error) {
 		case slices.Contains(names, name):
 			return nil, fmt.Errorf("IP_PROVIDERS %q names %q more than once", v, name)
 		}
-		if _, ok := ipProviders[name]; !ok {
-			return nil, fmt.Errorf("IP_PROVIDERS entry %q must be one of %s", name, strings.Join(slices.Sorted(maps.Keys(ipProviders)), ", "))
+		if _, ok := findProvider(name); !ok {
+			return nil, fmt.Errorf("IP_PROVIDERS entry %q must be one of %s", name, strings.Join(providerNames(), ", "))
 		}
 		names = append(names, name)
 	}

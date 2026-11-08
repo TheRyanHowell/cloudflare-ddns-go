@@ -97,23 +97,47 @@ type ipProvider struct {
 	accept  string
 }
 
-// ipProviders are the services IP_PROVIDERS can name.
-var ipProviders = map[string]ipProvider{
-	"cloudflare": {url: cloudflareTraceURL, extract: traceIP},
-	"amazon":     {url: amazonCheckIPURL, extract: strings.TrimSpace},
-	"ipify":      {url: ipifyURL, extract: strings.TrimSpace},
-	"icanhazip":  {url: icanhazipURL, extract: strings.TrimSpace},
-	"akamai":     {url: akamaiURL, extract: strings.TrimSpace},
-	"ipinfo":     {url: ipinfoURL, extract: strings.TrimSpace},
-	"opendns":    {url: opendnsDoHURL, extract: dohIPv4, accept: dnsMessageType},
+// namedProvider is an ipProvider and the name IP_PROVIDERS uses for it.
+type namedProvider struct {
+	name string
+	ipProvider
 }
 
-// newPublicIPSource tries the named providers in order. Each name must be a
-// key of ipProviders.
+// ipProviders are the services IP_PROVIDERS can name, in the default order.
+var ipProviders = []namedProvider{
+	{"cloudflare", ipProvider{url: cloudflareTraceURL, extract: traceIP}},
+	{"amazon", ipProvider{url: amazonCheckIPURL, extract: strings.TrimSpace}},
+	{"akamai", ipProvider{url: akamaiURL, extract: strings.TrimSpace}},
+	{"opendns", ipProvider{url: opendnsDoHURL, extract: dohIPv4, accept: dnsMessageType}},
+	{"ipinfo", ipProvider{url: ipinfoURL, extract: strings.TrimSpace}},
+	{"ipify", ipProvider{url: ipifyURL, extract: strings.TrimSpace}},
+	{"icanhazip", ipProvider{url: icanhazipURL, extract: strings.TrimSpace}},
+}
+
+// providerNames returns every provider name in the default order.
+func providerNames() []string {
+	names := make([]string, len(ipProviders))
+	for i, p := range ipProviders {
+		names[i] = p.name
+	}
+	return names
+}
+
+// findProvider returns the provider called name.
+func findProvider(name string) (ipProvider, bool) {
+	i := slices.IndexFunc(ipProviders, func(p namedProvider) bool { return p.name == name })
+	if i < 0 {
+		return ipProvider{}, false
+	}
+	return ipProviders[i].ipProvider, true
+}
+
+// newPublicIPSource tries the named providers in order. Each name must be in
+// ipProviders.
 func newPublicIPSource(logger *slog.Logger, client *http.Client, names []string) *fallbackLookup {
 	sources := make([]ipSource, 0, len(names))
 	for _, name := range names {
-		p := ipProviders[name]
+		p, _ := findProvider(name)
 		sources = append(sources, &publicIPLookup{client: client, ipProvider: p})
 	}
 	return newFallbackLookup(logger, sources...)

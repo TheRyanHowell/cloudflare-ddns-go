@@ -206,7 +206,7 @@ func TestIPProvidersParseTheirFormat(t *testing.T) {
 		t.Fatalf("test covers %d providers, want all %d", len(bodies), len(ipProviders))
 	}
 	for name, body := range bodies {
-		p, ok := ipProviders[name]
+		p, ok := findProvider(name)
 		if !ok {
 			t.Errorf("provider %q missing", name)
 			continue
@@ -345,7 +345,7 @@ func TestFallbackLookupCancellationIsNotAFailure(t *testing.T) {
 func TestCloudflareProviderUsesHostname(t *testing.T) {
 	// The bare 1.1.1.1 host intermittently returns error 1034; see
 	// https://github.com/favonia/cloudflare-ddns/issues/985.
-	if got, want := ipProviders["cloudflare"].url, "https://api.cloudflare.com/cdn-cgi/trace"; got != want {
+	if got, want := mustProvider(t, "cloudflare").url, "https://api.cloudflare.com/cdn-cgi/trace"; got != want {
 		t.Errorf("cloudflare url = %q, want %q", got, want)
 	}
 }
@@ -402,7 +402,7 @@ func TestDoHIPv4(t *testing.T) {
 }
 
 func TestOpenDNSQueryAsksForMyIP(t *testing.T) {
-	u, err := url.Parse(ipProviders["opendns"].url)
+	u, err := url.Parse(mustProvider(t, "opendns").url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,4 +439,13 @@ func TestPublicIPLookupSendsAccept(t *testing.T) {
 	if _, err := l.Current(context.Background()); err != nil || got != dnsMessageType {
 		t.Errorf("Accept = %q, err %v; want %q", got, err, dnsMessageType)
 	}
+}
+
+func mustProvider(t *testing.T, name string) ipProvider {
+	t.Helper()
+	p, ok := findProvider(name)
+	if !ok {
+		t.Fatalf("provider %q missing", name)
+	}
+	return p
 }

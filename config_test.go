@@ -136,12 +136,3 @@ func TestLoadConfigIPProviders(t *testing.T) {
 		})
 	}
 }
-
-func TestDefaultIPProvidersIncludesEveryProvider(t *testing.T) {
-	names := strings.Split(defaultIPProviders, ",")
-	for name := range ipProviders {
-		if !slices.Contains(names, name) {
-			t.Errorf("default IP_PROVIDERS %q omits %q", defaultIPProviders, name)
-		}
-	}
-}
