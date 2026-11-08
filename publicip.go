@@ -102,31 +102,103 @@ func newPublicIPSource(logger *slog.Logger, client *http.Client, names []string)
 		p := ipProviders[name]
 		sources = append(sources, &publicIPLookup{client: client, url: p.url, extract: p.extract})
 	}
-	return &fallbackLookup{logger: logger, sources: sources}
+	return newFallbackLookup(logger, sources...)
 }
 
-// fallbackLookup tries each source in order and returns the first address.
+// fallbackLookup tries each source in order and returns the first address. A
+// source that fails is skipped until its cooldown ends. It is not safe for
+// concurrent use.
 type fallbackLookup struct {
 	logger  *slog.Logger
-	sources []ipSource
+	sources []*trackedSource
+	now     func() time.Time
 }
 
-// Current returns the first source's answer, logging each failure that is
-// covered by a later source, or every error joined if all sources fail.
+// trackedSource remembers a source's consecutive failures and when it may be
+// tried again.
+type trackedSource struct {
+	src      ipSource
+	failures int
+	until    time.Time
+}
+
+const (
+	// baseCooldown is how long a source is skipped after one failure. It
+	// doubles with each consecutive failure, up to maxCooldown.
+	baseCooldown = time.Minute
+	maxCooldown  = time.Hour
+)
+
+// errProvidersCoolingDown is returned, without making any requests, when every
+// source is cooling down.
+var errProvidersCoolingDown = errors.New("every public IP provider is cooling down after failures")
+
+// cooldown returns how long to skip a source after failures consecutive failures.
+func cooldown(failures int) time.Duration {
+	d := baseCooldown
+	for i := 1; i < failures && d < maxCooldown; i++ {
+		d *= 2
+	}
+	return min(d, maxCooldown)
+}
+
+func newFallbackLookup(logger *slog.Logger, sources ...ipSource) *fallbackLookup {
+	f := &fallbackLookup{logger: logger, now: time.Now}
+	for _, src := range sources {
+		f.sources = append(f.sources, &trackedSource{src: src})
+	}
+	return f
+}
+
+// recordFailure starts a cooldown, honouring a longer Retry-After, and returns it.
+func (ts *trackedSource) recordFailure(now time.Time, err error) time.Duration {
+	ts.failures++
+	wait := cooldown(ts.failures)
+	var se *statusError
+	if errors.As(err, &se) {
+		wait = max(wait, se.retryAfter)
+	}
+	ts.until = now.Add(wait)
+	return wait
+}
+
+// Current returns the first answer from a source that is not cooling down,
+// logging each failure that is covered by a later source, or every error
+// joined if all the sources it tried failed.
 func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
+	now := f.now()
 	var errs []error
-	for i, src := range f.sources {
-		ip, err := src.Current(ctx)
+	for i, ts := range f.sources {
+		if now.Before(ts.until) {
+			continue
+		}
+		ip, err := ts.src.Current(ctx)
 		if err == nil {
+			ts.failures, ts.until = 0, time.Time{}
 			return ip, nil
 		}
 		if ctx.Err() != nil {
 			return "", err
 		}
+		wait := ts.recordFailure(now, err)
 		if i < len(f.sources)-1 {
-			f.logger.Warn("public IP source failed", "error", err)
+			f.logger.Warn("public IP source failed", "error", err, "retry_in", wait)
 		}
 		errs = append(errs, err)
 	}
+	if len(errs) == 0 {
+		return "", fmt.Errorf("%w; next retry in %s", errProvidersCoolingDown, f.nextRetry(now).Round(time.Second))
+	}
 	return "", errors.Join(errs...)
+}
+
+// nextRetry returns how long until the first source's cooldown ends.
+func (f *fallbackLookup) nextRetry(now time.Time) time.Duration {
+	next := f.sources[0].until
+	for _, ts := range f.sources[1:] {
+		if ts.until.Before(next) {
+			next = ts.until
+		}
+	}
+	return next.Sub(now)
 }

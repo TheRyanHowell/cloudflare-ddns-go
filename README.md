@@ -48,6 +48,8 @@ docker compose logs -f
 - Records are always written as DNS-only (not proxied), with the configured TTL.
 - Only IPv4 is supported. The IP lookup is forced over IPv4.
 - If an IP provider fails, the failure is logged and the next provider in `IP_PROVIDERS` is tried.
+- A provider that fails is skipped for a cooldown: 1 minute after one failure, doubling with each consecutive failure up to 1 hour. One success resets it. A single failure therefore does not drop a provider from the next sync at the default interval. A `Retry-After` header (for example on `429 Too Many Requests`) is honoured, up to 24 hours.
+- If every provider is cooling down, the sync makes no requests and is retried at the next interval.
 - Temporary failures, such as network errors or Cloudflare `5xx` responses, are logged and retried on the next cycle.
 - Permanent failures make the daemon exit with a non-zero status, so the problem shows up instead of being retried silently. These are a rejected token (`401`/`403`), a missing record (`404`), or a record that is not of type `A`. Compose's `restart: always` then restarts the container.
 
@@ -57,10 +59,12 @@ docker compose logs -f
 |---|---|---|---|
 | `cloudflare` | `https://1.1.1.1/cdn-cgi/trace` | Cloudflare | Default, first. The IP literal needs no DNS lookup |
 | `amazon` | `https://checkip.amazonaws.com/` | AWS | Default, second |
-| `ipinfo` | `https://ipinfo.io/ip` | Google Cloud | Default, third. Free tier is rate-limited |
+| `ipinfo` | `https://ipinfo.io/ip` | Google Cloud | Default, third. Limited to 1,000 requests a day per IP without an account |
 | `akamai` | `https://whatismyip.akamai.com/` | Akamai | Default, fourth |
 | `ipify` | `https://api4.ipify.org/` | Cloudflare | |
 | `icanhazip` | `https://icanhazip.com/` | Cloudflare | Owned and run by Cloudflare |
+
+Only ipinfo documents a rate limit. ipify states it has none, and the others publish nothing. The cooldowns keep the daemon well within the limits either way: at the default 5-minute interval it makes at most 288 lookups a day, and later providers are only asked when earlier ones fail.
 
 The default order spans four independent networks, so a single provider or network outage does not stop updates. Networks were identified from response headers and ownership in November 2026, and may change.
 
