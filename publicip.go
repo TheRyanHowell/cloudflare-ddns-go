@@ -177,7 +177,14 @@ type trackedSource struct {
 	src      ipSource
 	failures int
 	until    time.Time
+	// unreachable holds the error of a source skipped after a lookup stopped
+	// early; the source is charged a failure once another source answers.
+	unreachable error
 }
+
+// maxUnreachablePerLookup is how many sources in a row may be unreachable
+// before a lookup stops, since that points to a local outage.
+const maxUnreachablePerLookup = 3
 
 // maxCooldown caps a source's cooldown, unless the sync interval is longer.
 const maxCooldown = time.Hour
@@ -208,12 +215,30 @@ func newFallbackLookup(logger *slog.Logger, interval time.Duration, sources ...i
 
 // reset clears the source's failures after a success.
 func (ts *trackedSource) reset() {
-	ts.failures, ts.until = 0, time.Time{}
+	ts.failures, ts.until, ts.unreachable = 0, time.Time{}, nil
+}
+
+// skipOneSync skips the source for the next sync without counting a failure.
+func (ts *trackedSource) skipOneSync(now time.Time, interval time.Duration, err error) {
+	ts.until = now.Add(cooldown(1, interval))
+	ts.unreachable = err
+}
+
+// chargeUnreachable counts a failure for each source skipped as unreachable,
+// now that another source has shown the network works.
+func (f *fallbackLookup) chargeUnreachable(now time.Time) {
+	for _, ts := range f.sources {
+		if err := ts.unreachable; err != nil {
+			wait := ts.recordFailure(now, f.interval, err)
+			f.logger.Warn("public IP source was unreachable while others answered", "error", err, "retry_in", wait)
+		}
+	}
 }
 
 // recordFailure starts a cooldown, honouring a longer Retry-After, and returns it.
 func (ts *trackedSource) recordFailure(now time.Time, interval time.Duration, err error) time.Duration {
 	ts.failures++
+	ts.unreachable = nil
 	wait := max(cooldown(ts.failures, interval), retryAfter(err))
 	ts.until = now.Add(wait)
 	return wait
@@ -241,6 +266,7 @@ type sourceFailure struct {
 func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 	now := f.now()
 	var failures []sourceFailure
+	unreachable := 0
 	for _, ts := range f.sources {
 		if now.Before(ts.until) {
 			continue
@@ -251,12 +277,23 @@ func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 				f.settle(sf, now, true)
 			}
 			ts.reset()
+			f.chargeUnreachable(now)
 			return ip, nil
 		}
 		if ctx.Err() != nil {
 			return "", err
 		}
 		failures = append(failures, sourceFailure{ts: ts, err: err})
+		if !isTransportError(err) {
+			unreachable = 0
+			continue
+		}
+		if unreachable++; unreachable == maxUnreachablePerLookup {
+			for _, sf := range failures[len(failures)-unreachable:] {
+				sf.ts.skipOneSync(now, f.interval, sf.err)
+			}
+			break
+		}
 	}
 	if len(failures) == 0 {
 		return "", fmt.Errorf("%w; next retry in %s", errProvidersCoolingDown, f.nextRetry(now).Round(time.Second))

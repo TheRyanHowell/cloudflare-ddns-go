@@ -607,3 +607,53 @@ func TestPublicIPLookupDNSFallback(t *testing.T) {
 		})
 	}
 }
+
+func TestFallbackLookupStopsAfterThreeUnreachable(t *testing.T) {
+	now := testEpoch
+	var srcs []*stubSource
+	var sources []ipSource
+	for range 5 {
+		s := &stubSource{err: errUnreachable}
+		srcs = append(srcs, s)
+		sources = append(sources, s)
+	}
+	f := newTestFallback(&now, sources...)
+
+	if _, err := f.Current(context.Background()); err == nil {
+		t.Fatal("expected error")
+	}
+	if got := []int{srcs[0].calls, srcs[1].calls, srcs[2].calls, srcs[3].calls, srcs[4].calls}; !slices.Equal(got, []int{1, 1, 1, 0, 0}) {
+		t.Fatalf("first sync calls = %v, want only the first three asked", got)
+	}
+
+	// The next sync moves on to the providers not yet asked.
+	now = now.Add(testInterval)
+	if _, err := f.Current(context.Background()); err == nil {
+		t.Fatal("expected error")
+	}
+	if got := []int{srcs[0].calls, srcs[1].calls, srcs[2].calls, srcs[3].calls, srcs[4].calls}; !slices.Equal(got, []int{1, 1, 1, 1, 1}) {
+		t.Errorf("second sync calls = %v, want the last two asked", got)
+	}
+}
+
+func TestFallbackLookupChargesUnreachableProvidersOnceAnotherAnswers(t *testing.T) {
+	now := testEpoch
+	a, b, c := &stubSource{err: errUnreachable}, &stubSource{err: errUnreachable}, &stubSource{err: errUnreachable}
+	d := &stubSource{ip: "4.4.4.4"}
+	f := newTestFallback(&now, a, b, c, d)
+
+	if _, err := f.Current(context.Background()); err == nil || d.calls != 0 {
+		t.Fatalf("err = %v, d calls = %d; want a stop before d", err, d.calls)
+	}
+	// d answers, so the network works: a, b and c are charged a real failure
+	// and stay skipped at the sync after.
+	for range 2 {
+		now = now.Add(testInterval)
+		if got, err := f.Current(context.Background()); err != nil || got != "4.4.4.4" {
+			t.Fatalf("Current() = %q, %v; want d's answer", got, err)
+		}
+	}
+	if a.calls != 1 || b.calls != 1 || c.calls != 1 {
+		t.Errorf("calls = %d, %d, %d; want each asked once", a.calls, b.calls, c.calls)
+	}
+}
