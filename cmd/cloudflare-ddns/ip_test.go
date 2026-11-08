@@ -83,3 +83,12 @@ func TestIPFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestInterruptedCommandExitsCleanly(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	a, out, errOut := newTestApp(map[string]string{})
+	if code := a.execute(ctx, []string{"ip", "--providers", "amazon"}); code != exitOK || out.Len() != 0 || errOut.Len() != 0 {
+		t.Errorf("exit %d, stdout %q, stderr %q; want 0 and no output after an interrupt", code, out.String(), errOut.String())
+	}
+}
