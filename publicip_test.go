@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TheRyanHowell/cloudflare-ddns-go/internal/fetch"
+
 	"golang.org/x/net/dns/dnsmessage"
 )
 
@@ -131,7 +133,7 @@ func newTestFallback(now *time.Time, sources ...ipSource) *fallbackLookup {
 }
 
 // errUnreachable is a transport failure: no response arrived.
-var errUnreachable = fmt.Errorf("get public IP: %w", &transportError{err: &url.Error{Op: "Get", URL: "https://example.test", Err: errFake}})
+var errUnreachable = fmt.Errorf("get public IP: %w", &fetch.TransportError{Err: &url.Error{Op: "Get", URL: "https://example.test", Err: errFake}})
 
 // testInterval is the sync interval the fallback tests assume.
 const testInterval = 5 * time.Minute
@@ -286,7 +288,7 @@ func TestFallbackLookupSuccessResetsBackoff(t *testing.T) {
 
 func TestFallbackLookupHonoursRetryAfter(t *testing.T) {
 	now := testEpoch
-	limited := &statusError{code: http.StatusTooManyRequests, status: "429 Too Many Requests", retryAfter: 10 * time.Minute}
+	limited := &fetch.StatusError{Code: http.StatusTooManyRequests, Status: "429 Too Many Requests", RetryAfter: 10 * time.Minute}
 	primary := &stubSource{err: limited}
 	f := newTestFallback(&now, primary, &stubSource{ip: "2.2.2.2"})
 
@@ -295,7 +297,7 @@ func TestFallbackLookupHonoursRetryAfter(t *testing.T) {
 
 func TestFallbackLookupAllCoolingDownMakesNoRequests(t *testing.T) {
 	now := testEpoch
-	limited := &statusError{code: http.StatusTooManyRequests, status: "429 Too Many Requests", retryAfter: time.Hour}
+	limited := &fetch.StatusError{Code: http.StatusTooManyRequests, Status: "429 Too Many Requests", RetryAfter: time.Hour}
 	a, b := &stubSource{err: limited}, &stubSource{err: limited}
 	f := newTestFallback(&now, a, b)
 	if _, err := f.Current(context.Background()); err == nil {
@@ -500,7 +502,7 @@ func TestFallbackLookupChargesProvidersThatRespondedDuringOutage(t *testing.T) {
 	// error is charged even when every provider fails. Only transport errors
 	// count as a local outage.
 	now := testEpoch
-	blocked := &stubSource{err: fmt.Errorf("get public IP: %w", &statusError{code: http.StatusForbidden, status: "403 Forbidden"})}
+	blocked := &stubSource{err: fmt.Errorf("get public IP: %w", &fetch.StatusError{Code: http.StatusForbidden, Status: "403 Forbidden"})}
 	unreachable := &stubSource{err: errUnreachable}
 	f := newTestFallback(&now, blocked, unreachable)
 
@@ -518,15 +520,15 @@ func TestFallbackLookupChargesProvidersThatRespondedDuringOutage(t *testing.T) {
 
 func TestIsTransportErrorOnRealLookups(t *testing.T) {
 	refused := &publicIPLookup{client: http.DefaultClient, ipProvider: ipProvider{url: "http://127.0.0.1:1", extract: strings.TrimSpace}}
-	if _, err := refused.Current(context.Background()); !isTransportError(err) {
-		t.Errorf("refused connection: isTransportError(%v) = false, want true", err)
+	if _, err := refused.Current(context.Background()); !fetch.IsTransportError(err) {
+		t.Errorf("refused connection: fetch.IsTransportError(%v) = false, want true", err)
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) }))
 	defer srv.Close()
 	forbidden := &publicIPLookup{client: srv.Client(), ipProvider: ipProvider{url: srv.URL, extract: strings.TrimSpace}}
-	if _, err := forbidden.Current(context.Background()); err == nil || isTransportError(err) {
-		t.Errorf("403 response: isTransportError(%v) = true, want false", err)
+	if _, err := forbidden.Current(context.Background()); err == nil || fetch.IsTransportError(err) {
+		t.Errorf("403 response: fetch.IsTransportError(%v) = true, want false", err)
 	}
 	truncated := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Length", "100")
@@ -534,8 +536,8 @@ func TestIsTransportErrorOnRealLookups(t *testing.T) {
 	}))
 	defer truncated.Close()
 	cut := &publicIPLookup{client: truncated.Client(), ipProvider: ipProvider{url: truncated.URL, extract: strings.TrimSpace}}
-	if _, err := cut.Current(context.Background()); !isTransportError(err) {
-		t.Errorf("body cut short: isTransportError(%v) = false, want true", err)
+	if _, err := cut.Current(context.Background()); !fetch.IsTransportError(err) {
+		t.Errorf("body cut short: fetch.IsTransportError(%v) = false, want true", err)
 	}
 }
 
@@ -602,8 +604,8 @@ func TestPublicIPLookupDNSFallback(t *testing.T) {
 				t.Errorf("Current() = %q, %v with %d fetches; want %q, error %v, 1 fetch", got, err, fetches, tt.wantIP, tt.wantErr)
 			}
 			// A host that answered with an error is not unreachable, even after a DNS failure.
-			if err != nil && isTransportError(err) {
-				t.Errorf("isTransportError(%v) = true; the answering host should be charged", err)
+			if err != nil && fetch.IsTransportError(err) {
+				t.Errorf("fetch.IsTransportError(%v) = true; the answering host should be charged", err)
 			}
 		})
 	}
@@ -712,7 +714,7 @@ func TestFallbackLookupLoneProviderSkipsNoSync(t *testing.T) {
 
 func TestFallbackLookupLoneProviderHonoursRetryAfter(t *testing.T) {
 	now := testEpoch
-	limited := &statusError{code: http.StatusTooManyRequests, status: "429 Too Many Requests", retryAfter: 2 * testInterval}
+	limited := &fetch.StatusError{Code: http.StatusTooManyRequests, Status: "429 Too Many Requests", RetryAfter: 2 * testInterval}
 	lone := &stubSource{err: limited}
 	f := newTestFallback(&now, lone)
 

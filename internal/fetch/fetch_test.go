@@ -1,7 +1,8 @@
-package main
+package fetch
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -34,10 +35,10 @@ func TestFetch(t *testing.T) {
 			defer srv.Close()
 			req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
 
-			got, err := fetch(srv.Client(), req)
+			got, err := Body(srv.Client(), req)
 			if tt.wantErr == "" {
 				if err != nil || string(got) != tt.body {
-					t.Errorf("fetch() = %q, %v", got, err)
+					t.Errorf("Body() = %q, %v", got, err)
 				}
 				return
 			}
@@ -87,10 +88,10 @@ func TestFetchStatusErrorCarriesRetryAfter(t *testing.T) {
 	defer srv.Close()
 	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
 
-	_, err := fetch(srv.Client(), req)
-	var se *statusError
-	if !errors.As(err, &se) || se.retryAfter != 2*time.Minute {
-		t.Errorf("err = %#v, want statusError with retryAfter 2m", err)
+	_, err := Body(srv.Client(), req)
+	var se *StatusError
+	if !errors.As(err, &se) || se.RetryAfter != 2*time.Minute {
+		t.Errorf("err = %#v, want StatusError with retryAfter 2m", err)
 	}
 }
 
@@ -104,10 +105,10 @@ func TestFetchKeepsStatusWhenErrorBodyIsCutShort(t *testing.T) {
 	defer srv.Close()
 	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
 
-	_, err := fetch(srv.Client(), req)
-	var se *statusError
-	if !errors.As(err, &se) || se.retryAfter != time.Hour || isTransportError(err) {
-		t.Errorf("err = %#v, want a statusError with retryAfter 1h and no transport marker", err)
+	_, err := Body(srv.Client(), req)
+	var se *StatusError
+	if !errors.As(err, &se) || se.RetryAfter != time.Hour || IsTransportError(err) {
+		t.Errorf("err = %#v, want a StatusError with retryAfter 1h and no transport marker", err)
 	}
 }
 
@@ -121,4 +122,37 @@ func FuzzParseRetryAfter(f *testing.F) {
 			t.Errorf("parseRetryAfter(%q) = %v, want within 0..%v", value, got, maxRetryAfter)
 		}
 	})
+}
+
+func TestRetryAfter(t *testing.T) {
+	tests := map[string]struct {
+		err  error
+		want time.Duration
+	}{
+		"status error":  {&StatusError{Code: http.StatusTooManyRequests, RetryAfter: time.Minute}, time.Minute},
+		"wrapped":       {fmt.Errorf("get: %w", &StatusError{RetryAfter: time.Hour}), time.Hour},
+		"other error":   {errors.New("boom"), 0},
+		"transport err": {&TransportError{Err: errors.New("refused")}, 0},
+	}
+	for name, tt := range tests {
+		if got := RetryAfter(tt.err); got != tt.want {
+			t.Errorf("%s: RetryAfter() = %v, want %v", name, got, tt.want)
+		}
+	}
+}
+
+func TestBodyTransportErrors(t *testing.T) {
+	truncated := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		io.WriteString(w, "9.8.")
+	}))
+	defer truncated.Close()
+
+	for name, url := range map[string]string{"refused": "http://127.0.0.1:1", "body cut short": truncated.URL} {
+		req, _ := http.NewRequest(http.MethodGet, url, nil)
+		_, err := Body(http.DefaultClient, req)
+		if !IsTransportError(err) || err.Error() == "" {
+			t.Errorf("%s: err = %v, want a transport error", name, err)
+		}
+	}
 }

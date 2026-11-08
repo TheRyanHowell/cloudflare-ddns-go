@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TheRyanHowell/cloudflare-ddns-go/internal/fetch"
 	"golang.org/x/net/dns/dnsmessage"
 )
 
@@ -81,7 +82,7 @@ func (l *publicIPLookup) fetchIP(ctx context.Context, url string) (string, error
 	if l.accept != "" {
 		req.Header.Set("Accept", l.accept)
 	}
-	body, err := fetch(l.client, req)
+	body, err := fetch.Body(l.client, req)
 	if err != nil {
 		return "", fmt.Errorf("get public IP: %w", err)
 	}
@@ -239,18 +240,9 @@ func (f *fallbackLookup) chargeUnreachable(now time.Time) {
 func (ts *trackedSource) recordFailure(now time.Time, interval time.Duration, err error) time.Duration {
 	ts.failures++
 	ts.unreachable = nil
-	wait := max(cooldown(ts.failures, interval), retryAfter(err))
+	wait := max(cooldown(ts.failures, interval), fetch.RetryAfter(err))
 	ts.until = now.Add(wait)
 	return wait
-}
-
-// retryAfter returns the Retry-After delay carried by err, or 0.
-func retryAfter(err error) time.Duration {
-	var se *statusError
-	if errors.As(err, &se) {
-		return se.retryAfter
-	}
-	return 0
 }
 
 // sourceFailure is a source and the error it returned during one lookup.
@@ -280,7 +272,7 @@ func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 			return "", err
 		}
 		failures = append(failures, sourceFailure{ts: ts, err: err})
-		if !isTransportError(err) {
+		if !fetch.IsTransportError(err) {
 			unreachable = 0
 			continue
 		}
@@ -309,7 +301,7 @@ func (f *fallbackLookup) failed(now time.Time, failures, skipped []sourceFailure
 	errs := make([]error, len(failures))
 	for i, sf := range failures {
 		errs[i] = sf.err
-		f.settle(sf, now, !isTransportError(sf.err))
+		f.settle(sf, now, !fetch.IsTransportError(sf.err))
 	}
 	for _, sf := range skipped {
 		sf.ts.skipOneSync(now, f.interval, sf.err)
@@ -328,7 +320,7 @@ func (f *fallbackLookup) settle(sf sourceFailure, now time.Time, charge bool) {
 	if len(f.sources) == 1 {
 		// A cooldown would only fail the next sync, as there is nothing to fall
 		// back to, so only a Retry-After the provider sent applies.
-		wait := retryAfter(sf.err)
+		wait := fetch.RetryAfter(sf.err)
 		sf.ts.until = now.Add(wait)
 		f.logger.Warn("public IP source failed", "error", sf.err, "retry_in", wait)
 		return

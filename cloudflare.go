@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/TheRyanHowell/cloudflare-ddns-go/internal/fetch"
 	"golang.org/x/net/idna"
 )
 
@@ -63,7 +64,7 @@ func (r *cloudflareRecord) Content(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("build record request: %w", err)
 	}
-	body, err := fetch(r.client, req)
+	body, err := fetch.Body(r.client, req)
 	if err != nil {
 		return "", fmt.Errorf("get DNS record: %w", err)
 	}
@@ -100,7 +101,7 @@ func (r *cloudflareRecord) Update(ctx context.Context, ip string) error {
 		return fmt.Errorf("build update request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if _, err := fetch(r.client, req); err != nil {
+	if _, err := fetch.Body(r.client, req); err != nil {
 		return fmt.Errorf("update DNS record: %w", err)
 	}
 	return nil
@@ -121,4 +122,21 @@ func normalizeDNSName(name string) string {
 		return ascii
 	}
 	return name
+}
+
+// permanent reports whether retrying err cannot help: rejected credentials, a
+// missing record, or a record that is not usable.
+func permanent(err error) bool {
+	if errors.Is(err, errInvalidRecord) {
+		return true
+	}
+	var se *fetch.StatusError
+	if !errors.As(err, &se) {
+		return false
+	}
+	switch se.Code {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound:
+		return true
+	}
+	return false
 }

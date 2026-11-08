@@ -1,4 +1,5 @@
-package main
+// Package fetch performs HTTP requests and classifies their failures.
+package fetch
 
 import (
 	"errors"
@@ -19,56 +20,48 @@ const (
 	maxErrorSnippetBytes = 256
 )
 
-// statusError is returned for any non-200 response.
-type statusError struct {
-	code   int
-	status string
-	body   string
-	// retryAfter is the server's Retry-After delay, or 0 when absent.
-	retryAfter time.Duration
+// StatusError is returned for any non-200 response.
+type StatusError struct {
+	Code   int
+	Status string
+	Body   string
+	// RetryAfter is the server's Retry-After delay, or 0 when absent.
+	RetryAfter time.Duration
 }
 
-func (e *statusError) Error() string {
-	return "unexpected status " + e.status + ": " + e.body
+func (e *StatusError) Error() string {
+	return "unexpected status " + e.Status + ": " + e.Body
 }
 
-// transportError marks a request that got no usable response: the request
+// TransportError marks a request that got no usable response: the request
 // failed, or the body could not be read in full.
-type transportError struct {
-	err error
+type TransportError struct {
+	Err error
 }
 
-func (e *transportError) Error() string { return e.err.Error() }
-func (e *transportError) Unwrap() error { return e.err }
+func (e *TransportError) Error() string { return e.Err.Error() }
+func (e *TransportError) Unwrap() error { return e.Err }
 
-// isTransportError reports whether err means no usable response arrived.
-func isTransportError(err error) bool {
-	var te *transportError
+// IsTransportError reports whether err means no usable response arrived.
+func IsTransportError(err error) bool {
+	var te *TransportError
 	return errors.As(err, &te)
 }
 
-// permanent reports whether retrying err cannot help: rejected credentials, a
-// missing record, or a record that is not usable.
-func permanent(err error) bool {
-	if errors.Is(err, errInvalidRecord) {
-		return true
+// RetryAfter returns the Retry-After delay carried by err, or 0.
+func RetryAfter(err error) time.Duration {
+	var se *StatusError
+	if errors.As(err, &se) {
+		return se.RetryAfter
 	}
-	var se *statusError
-	if !errors.As(err, &se) {
-		return false
-	}
-	switch se.code {
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound:
-		return true
-	}
-	return false
+	return 0
 }
 
-// fetch performs req and returns the body of a 200 response.
-func fetch(client *http.Client, req *http.Request) ([]byte, error) {
+// Body performs req and returns the body of a 200 response.
+func Body(client *http.Client, req *http.Request) ([]byte, error) {
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, &transportError{err: err}
+		return nil, &TransportError{Err: err}
 	}
 	defer resp.Body.Close() //nolint:errcheck // nothing useful to do on failure
 
@@ -76,15 +69,15 @@ func fetch(client *http.Client, req *http.Request) ([]byte, error) {
 	// An error status is kept even if its body was cut short, so its
 	// Retry-After still applies.
 	if resp.StatusCode != http.StatusOK {
-		return nil, &statusError{
-			code:       resp.StatusCode,
-			status:     resp.Status,
-			body:       snippet(body),
-			retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()),
+		return nil, &StatusError{
+			Code:       resp.StatusCode,
+			Status:     resp.Status,
+			Body:       snippet(body),
+			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()),
 		}
 	}
 	if err != nil {
-		return nil, &transportError{err: err}
+		return nil, &TransportError{Err: err}
 	}
 	if len(body) > maxResponseBytes {
 		return nil, fmt.Errorf("response exceeds %d bytes", maxResponseBytes)

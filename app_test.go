@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/TheRyanHowell/cloudflare-ddns-go/internal/fetch"
 )
 
 func envFunc(env map[string]string) func(string) string {
@@ -78,7 +80,7 @@ func TestRunAllHealthServerFailureIsFatal(t *testing.T) {
 }
 
 func TestRunAllStopsBothOnSyncerError(t *testing.T) {
-	denied := &statusError{code: 403, status: "403 Forbidden"}
+	denied := &fetch.StatusError{Code: 403, Status: "403 Forbidden"}
 	srv := newHealthServer("127.0.0.1:0", http.NotFoundHandler())
 	s := newTestSyncer(&fakeRecord{contentErrs: []error{denied}}, &fakeLookup{})
 

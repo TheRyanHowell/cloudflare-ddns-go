@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/TheRyanHowell/cloudflare-ddns-go/internal/fetch"
 )
 
 var errFake = errors.New("fake failure")
@@ -100,7 +102,7 @@ func TestSyncerSync(t *testing.T) {
 }
 
 func TestRunPermanentStartupFailureIsFatal(t *testing.T) {
-	denied := &statusError{code: 403, status: "403 Forbidden"}
+	denied := &fetch.StatusError{Code: 403, Status: "403 Forbidden"}
 	record := &fakeRecord{contentErrs: []error{denied, denied}}
 	err := newTestSyncer(record, &fakeLookup{}).run(context.Background())
 	if !errors.Is(err, denied) {
@@ -172,13 +174,13 @@ func TestPermanent(t *testing.T) {
 		err  error
 		want bool
 	}{
-		{"401", &statusError{code: 401}, true},
-		{"403", &statusError{code: 403}, true},
-		{"404", &statusError{code: 404}, true},
-		{"429", &statusError{code: 429}, false},
-		{"500", &statusError{code: 500}, false},
+		{"401", &fetch.StatusError{Code: 401}, true},
+		{"403", &fetch.StatusError{Code: 403}, true},
+		{"404", &fetch.StatusError{Code: 404}, true},
+		{"429", &fetch.StatusError{Code: 429}, false},
+		{"500", &fetch.StatusError{Code: 500}, false},
 		{"invalid record", errInvalidRecord, true},
-		{"wrapped status", wrap(&statusError{code: 403}), true},
+		{"wrapped status", wrap(&fetch.StatusError{Code: 403}), true},
 		{"network error", errFake, false},
 	}
 	for _, tt := range tests {
@@ -191,7 +193,7 @@ func TestPermanent(t *testing.T) {
 }
 
 func TestRunPermanentUpdateFailureIsFatal(t *testing.T) {
-	revoked := &statusError{code: 401, status: "401 Unauthorized"}
+	revoked := &fetch.StatusError{Code: 401, Status: "401 Unauthorized"}
 	record := &fakeRecord{content: "1.1.1.1", updateErrs: []error{revoked}}
 	err := newTestSyncer(record, &fakeLookup{ips: []string{"2.2.2.2"}}).run(context.Background())
 	if !errors.Is(err, errPermanentSync) || !errors.Is(err, revoked) {
@@ -202,7 +204,7 @@ func TestRunPermanentUpdateFailureIsFatal(t *testing.T) {
 func TestRunLookupStatusErrorIsNotFatal(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	forbidden := &statusError{code: 403, status: "403 Forbidden"}
+	forbidden := &fetch.StatusError{Code: 403, Status: "403 Forbidden"}
 	lookup := &fakeLookup{ips: []string{"2.2.2.2"}, err: forbidden, cancel: cancel}
 	record := &fakeRecord{content: "1.1.1.1"}
 	// The IP service answering 403 is transient from the daemon's view.
@@ -212,7 +214,7 @@ func TestRunLookupStatusErrorIsNotFatal(t *testing.T) {
 }
 
 func TestSyncerWaitsBeforeExitingOnPermanentFailure(t *testing.T) {
-	denied := &statusError{code: 403, status: "403 Forbidden"}
+	denied := &fetch.StatusError{Code: 403, Status: "403 Forbidden"}
 	s := newTestSyncer(&fakeRecord{contentErrs: []error{denied}}, &fakeLookup{})
 	s.exitDelay = time.Hour
 
