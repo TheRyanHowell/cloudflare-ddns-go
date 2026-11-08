@@ -4,22 +4,39 @@ The module `github.com/TheRyanHowell/cloudflare-ddns-go` follows Go's [module la
 
 | Package | Responsibility |
 |---|---|
-| `cmd/cloudflare-ddns` | The binary. `main.go` turns SIGINT and SIGTERM into a cancelled context, `app.go` runs either the daemon or the `healthcheck` subcommand and wires the packages together, and `config.go` reads and validates the environment variables |
+| `cmd/cloudflare-ddns` | The binary. `main.go` turns SIGINT and SIGTERM into a cancelled context and calls `app.execute`. `cli.go` builds the [cobra](https://github.com/spf13/cobra) command tree and maps errors to exit codes, `flags.go` declares the flags and overlays them on the environment, `app.go` runs the daemon and the `healthcheck` probe, `sync.go`, `ip.go` and `version.go` hold the other commands, and `config.go` reads and validates the settings |
 | `ddns` | The sync loop. `Syncer.Run` loads the record, then compares and updates it every interval; `Syncer.Sync` is a single read, compare and update |
 | `publicip` | Finds the public IPv4 address: the provider registry, response parsers and the fallback with cooldowns (`New`, `Lookup.Current`) |
 | `cloudflare` | Reads and updates the DNS record through the Cloudflare API (`NewRecord`, `Record.Content`, `Record.Update`) and decides which of its errors are permanent (`IsPermanent`) |
 | `internal/fetch` | Shared HTTP request helper and error classification |
-| `internal/health` | The `/healthz` endpoint and the probe the `healthcheck` subcommand runs |
+| `internal/health` | The `/healthz` endpoint and the probe the `healthcheck` command runs |
 
 `ddns` depends only on small interfaces it declares itself: `RecordStore` (`Content`, `Update`), `IPSource` (`Current`) and an optional `HealthReporter`. The command passes it a `cloudflare.Record`, a `publicip.Lookup`, the `health.State` and `cloudflare.IsPermanent` as the permanent-error check, so `ddns` imports neither `cloudflare` nor the health code.
 
+## Commands
+
+The root command and `run` both run the daemon, so a bare `cloudflare-ddns` behaves as it always has. The other commands share the same configuration code.
+
+| Command | Flags | Does |
+|---|---|---|
+| `run` (and the root) | all | Loads the configuration and runs the health server and the syncer until stopped |
+| `sync` | token, token-file, zone-id, record-id, record-name, ttl, providers | One `Syncer.Sync`, then prints what changed. It never starts the health server |
+| `ip` | providers | One `Lookup.Current`, then prints the address |
+| `healthcheck` | health-addr | Probes `/healthz` of a running daemon |
+| `version` | none | Prints the version set with `-ldflags -X main.version`, else the module version from the build information, else `dev` |
+
+Flags are an overlay on the environment, not a second configuration path. `overlay` returns a `getenv` that answers from the flags that were set and falls back to the real environment, and the existing loaders (`loadConfig`, `ipProviderList`, `healthAddr`) read from it. Every validation rule and error message therefore applies to flags as well. Setting either token flag hides all the token variables, so a flag cleanly replaces the environment's token.
+
+`app.execute` returns the exit code. Cobra's usage and error printing are silenced, and the errors are mapped by hand: a `usageError` (unknown command, bad flag or stray argument) prints the command's usage and exits `2`, and any other error is logged and exits `1`. `sync` learns the record's previous address by wrapping the `RecordStore` in `observedRecord`, because `Syncer.Sync` reports only the new address and whether it changed.
+
 ## Startup
 
-In `cmd/cloudflare-ddns`, `run` loads the configuration, then starts two goroutines under one `errgroup`: the health server and the syncer. If either stops with an error, the other is cancelled and the process exits.
+In `cmd/cloudflare-ddns`, `runDaemon` loads the configuration, then starts two goroutines under one `errgroup`: the health server and the syncer. If either stops with an error, the other is cancelled and the process exits.
 
 ```mermaid
 flowchart LR
-    main --> run
+    main --> execute[app.execute]
+    execute --> run[runDaemon]
     run --> config[loadConfig]
     run --> group{errgroup}
     group --> health[health server]
@@ -58,4 +75,4 @@ All lookups share one HTTP client that only dials over IPv4, so a dual-stack hos
 
 ## Testing
 
-Tests sit beside the code in each package, and fuzz tests cover the parsers and validators. They run against `httptest` servers instead of the real providers or Cloudflare, and the fallback tests use an injected clock, so the suite runs in about a second. Run it with `go test -race ./...`.
+Tests sit beside the code in each package, and fuzz tests cover the parsers and validators. They run against `httptest` servers instead of the real providers or Cloudflare, and the fallback tests use an injected clock, so the suite runs in about a second. The command tests run the cobra tree through `app.execute` with captured streams and an HTTP client that redirects every request to one `httptest` server, so `sync` and `ip` are tested end to end without the network. Run it with `go test -race ./...`.

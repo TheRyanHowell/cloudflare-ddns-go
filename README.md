@@ -18,17 +18,17 @@ Copy the example environment file and fill it in:
 cp .env.example .env
 ```
 
-| Variable | Required | Description |
-|---|---|---|
-| `CLOUDFLARE_API_TOKEN` | Yes, or the next | Cloudflare API token |
-| `CLOUDFLARE_API_TOKEN_FILE` | | Path to a file holding the token instead, such as a Docker secret. Set only one of the two. The file must be readable by UID 65532 |
-| `CLOUDFLARE_ZONE_ID` | Yes | Zone ID, shown on the zone's Overview page in the Cloudflare dashboard |
-| `CLOUDFLARE_RECORD_ID` | Yes | ID of the `A` record to update |
-| `CLOUDFLARE_RECORD_NAME` | Yes | The record's full name, e.g. `home.example.com`. Unicode names are accepted |
-| `SYNC_INTERVAL` | No | How often to check the public IP, as a Go duration such as `10m`. Between `30s` and `24h` (default `5m`) |
-| `CLOUDFLARE_RECORD_TTL` | No | Record TTL in seconds: `1` for automatic, or `30` to `86400`. Cloudflare only accepts values below `60` on Enterprise plans (default `300`) |
-| `IP_PROVIDERS` | No | Comma-separated public IP providers, in the order to try them (default: all of them, see [IP providers](docs/ip-providers.md)) |
-| `HEALTH_ADDR` | No | Listen address for the health endpoint (default `127.0.0.1:8080`) |
+| Variable | Flag | Required | Description |
+|---|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | `--token` | Yes, or the next | Cloudflare API token |
+| `CLOUDFLARE_API_TOKEN_FILE` | `--token-file` | | Path to a file holding the token instead, such as a Docker secret. Set only one of the two. The file must be readable by UID 65532 |
+| `CLOUDFLARE_ZONE_ID` | `--zone-id` | Yes | Zone ID, shown on the zone's Overview page in the Cloudflare dashboard |
+| `CLOUDFLARE_RECORD_ID` | `--record-id` | Yes | ID of the `A` record to update |
+| `CLOUDFLARE_RECORD_NAME` | `--record-name` | Yes | The record's full name, e.g. `home.example.com`. Unicode names are accepted |
+| `SYNC_INTERVAL` | `--interval` | No | How often to check the public IP, as a Go duration such as `10m`. Between `30s` and `24h` (default `5m`) |
+| `CLOUDFLARE_RECORD_TTL` | `--ttl` | No | Record TTL in seconds: `1` for automatic, or `30` to `86400`. Cloudflare only accepts values below `60` on Enterprise plans (default `300`) |
+| `IP_PROVIDERS` | `--providers` | No | Comma-separated public IP providers, in the order to try them (default: all of them, see [IP providers](docs/ip-providers.md)) |
+| `HEALTH_ADDR` | `--health-addr` | No | Listen address for the health endpoint (default `127.0.0.1:8080`) |
 
 To keep the token out of `.env`, store it as a Docker secret and point `CLOUDFLARE_API_TOKEN_FILE` at it:
 
@@ -88,6 +88,87 @@ The Dockerfile cross-compiles, so building an ARM image on an x86 machine needs 
 The daemon serves `GET /healthz` on `HEALTH_ADDR`. It returns `200` while syncs are succeeding and `503` once the last success is too old (18 minutes with the defaults) or after a permanent failure. The [failure handling](docs/failure-handling.md#health-window) page explains the window.
 
 The Compose healthcheck runs `/cloudflare-ddns healthcheck`, which probes that endpoint from inside the container.
+
+## Command line
+
+The same binary runs outside Docker. Install it with Go 1.27 or newer:
+
+```sh
+go install github.com/TheRyanHowell/cloudflare-ddns-go/cmd/cloudflare-ddns@latest
+```
+
+```
+cloudflare-ddns [command] [flags]
+```
+
+| Command | What it does |
+|---|---|
+| `run` | Runs the daemon. This is also what runs when you give no command, so the container's entrypoint and healthcheck work unchanged |
+| `sync` | Checks the record once, updates it if the public IP differs, and exits. Prints `updated <name>: <old> -> <new>` or `<name> is already <ip>` |
+| `ip` | Prints the public IP address and nothing else. Needs no Cloudflare settings |
+| `healthcheck` | Probes the health endpoint of a running daemon |
+| `version` | Prints the version |
+| `completion` | Prints a shell completion script for bash, zsh, fish or PowerShell |
+
+`cloudflare-ddns <command> --help` lists a command's flags. The exit code is `0` on success, `1` on a configuration or runtime error (the message goes to stderr) and `2` for an unknown command or a bad flag.
+
+To update a record from cron every ten minutes:
+
+```cron
+*/10 * * * * cloudflare-ddns sync --token-file /etc/cloudflare-ddns/token --zone-id ZONE_ID --record-id RECORD_ID --record-name home.example.com
+```
+
+Every flag in the table above falls back to its environment variable, and a flag you set wins. Setting `--token` or `--token-file` makes the command ignore all the token variables, so a flag replaces the environment's token instead of clashing with it. Values go through the same validation either way, so an error names the variable even when the flag set it.
+
+`--token` puts the secret in the process list, where other users on the machine can read it. Use `--token-file` or the environment instead.
+
+## Library
+
+The packages are importable on their own. This looks up the public IP and brings a record in step with it once:
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/TheRyanHowell/cloudflare-ddns-go/cloudflare"
+	"github.com/TheRyanHowell/cloudflare-ddns-go/ddns"
+	"github.com/TheRyanHowell/cloudflare-ddns-go/publicip"
+)
+
+func main() {
+	ctx := context.Background()
+
+	lookup, err := publicip.New(publicip.Providers())
+	if err != nil {
+		log.Fatal(err)
+	}
+	ip, err := lookup.Current(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("public IP:", ip)
+
+	record := cloudflare.NewRecord(cloudflare.RecordConfig{
+		Token:    "API_TOKEN",
+		ZoneID:   "ZONE_ID",
+		RecordID: "RECORD_ID",
+		Name:     "home.example.com",
+		TTL:      300,
+	})
+	syncer := ddns.New(record, lookup, ddns.WithPermanentCheck(cloudflare.IsPermanent))
+	ip, changed, err := syncer.Sync(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("record is", ip, "updated:", changed)
+}
+```
+
+`Sync` wraps errors that retrying cannot fix, such as a rejected token, with `ddns.ErrPermanent`. See [architecture](docs/architecture.md) for how the packages fit together.
 
 ## Documentation
 
