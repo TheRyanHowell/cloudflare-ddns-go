@@ -91,16 +91,19 @@ func TestRunAllStopsBothOnSyncerError(t *testing.T) {
 }
 
 func TestHealthStaleAfter(t *testing.T) {
-	tests := map[time.Duration]time.Duration{
-		30 * time.Second: 75*time.Second + maxSyncDuration,
-		5 * time.Minute:  12*time.Minute + 30*time.Second + maxSyncDuration,
+	// One request timeout per provider, plus one for the record update.
+	tests := []struct {
+		interval  time.Duration
+		providers int
+		want      time.Duration
+	}{
+		{30 * time.Second, 1, 75*time.Second + 2*requestTimeout},
+		{30 * time.Second, 2, 75*time.Second + 3*requestTimeout},
+		{5 * time.Minute, 7, 12*time.Minute + 30*time.Second + 8*requestTimeout},
 	}
-	for interval, want := range tests {
-		if got := healthStaleAfter(interval); got != want {
-			t.Errorf("healthStaleAfter(%v) = %v, want %v", interval, got, want)
+	for _, tt := range tests {
+		if got := healthStaleAfter(tt.interval, tt.providers); got != tt.want {
+			t.Errorf("healthStaleAfter(%v, %d) = %v, want %v", tt.interval, tt.providers, got, tt.want)
 		}
-	}
-	if maxSyncDuration < 3*requestTimeout {
-		t.Errorf("maxSyncDuration %v is below two lookups and an update (%v)", maxSyncDuration, 3*requestTimeout)
 	}
 }
