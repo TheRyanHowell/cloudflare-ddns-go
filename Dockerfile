@@ -7,7 +7,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 go build -o /cloudflare-ddns
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /cloudflare-ddns
 
 FROM scratch AS final
 
