@@ -57,7 +57,7 @@ docker compose logs -f
 
 | Name | Endpoint | Network | Notes |
 |---|---|---|---|
-| `cloudflare` | `https://1.1.1.1/cdn-cgi/trace` | Cloudflare | Default, first. The IP literal needs no DNS lookup |
+| `cloudflare` | `https://api.cloudflare.com/cdn-cgi/trace` | Cloudflare | Default, first |
 | `amazon` | `https://checkip.amazonaws.com/` | AWS | Default, second |
 | `ipinfo` | `https://ipinfo.io/ip` | Google Cloud | Default, third. Limited to 1,000 requests a day per IP without an account |
 | `akamai` | `https://whatismyip.akamai.com/` | Akamai | Default, fourth |

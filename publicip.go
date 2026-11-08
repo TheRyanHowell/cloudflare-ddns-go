@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	// cloudflareTraceURL's IPv4 literal avoids a DNS lookup and guarantees the
-	// request goes over IPv4.
-	cloudflareTraceURL = "https://1.1.1.1/cdn-cgi/trace"
+	// cloudflareTraceURL uses a hostname because the bare 1.1.1.1 host
+	// intermittently returns error 1034.
+	cloudflareTraceURL = "https://api.cloudflare.com/cdn-cgi/trace"
 	amazonCheckIPURL   = "https://checkip.amazonaws.com/"
 	// ipifyURL is ipify's IPv4-only host.
 	ipifyURL = "https://api4.ipify.org/"

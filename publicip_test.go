@@ -336,3 +336,11 @@ func TestFallbackLookupCancellationIsNotAFailure(t *testing.T) {
 		t.Errorf("Current() = %q, %v; want primary retried at once", got, err)
 	}
 }
+
+func TestCloudflareProviderUsesHostname(t *testing.T) {
+	// The bare 1.1.1.1 host intermittently returns error 1034; see
+	// https://github.com/favonia/cloudflare-ddns/issues/985.
+	if got, want := ipProviders["cloudflare"].url, "https://api.cloudflare.com/cdn-cgi/trace"; got != want {
+		t.Errorf("cloudflare url = %q, want %q", got, want)
+	}
+}
