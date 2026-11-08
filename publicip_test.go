@@ -694,3 +694,32 @@ func TestFallbackLookupClearsUnreachableMarkWhenRetried(t *testing.T) {
 		t.Errorf("a's unreachable mark = %v after it was retried, want cleared", f.sources[0].unreachable)
 	}
 }
+
+func TestFallbackLookupLoneProviderSkipsNoSync(t *testing.T) {
+	// With nothing to fall back to, a cooldown would only fail the next sync.
+	now := testEpoch
+	lone := &stubSource{errs: []error{errFake}, ip: "1.1.1.1"}
+	f := newTestFallback(&now, lone)
+	if _, err := f.Current(context.Background()); err == nil {
+		t.Fatal("expected error")
+	}
+	now = now.Add(testInterval)
+	if got, err := f.Current(context.Background()); err != nil || got != "1.1.1.1" {
+		t.Errorf("Current() = %q, %v; want the lone provider retried at the next sync", got, err)
+	}
+}
+
+func TestFallbackLookupLoneProviderHonoursRetryAfter(t *testing.T) {
+	now := testEpoch
+	limited := &statusError{code: http.StatusTooManyRequests, status: "429 Too Many Requests", retryAfter: 2 * testInterval}
+	lone := &stubSource{err: limited}
+	f := newTestFallback(&now, lone)
+
+	for _, step := range []callStep{{0, 1}, {testInterval, 1}, {2 * testInterval, 2}} {
+		now = testEpoch.Add(step.at)
+		_, _ = f.Current(context.Background())
+		if lone.calls != step.wantCalls {
+			t.Errorf("at %v: calls = %d, want %d", step.at, lone.calls, step.wantCalls)
+		}
+	}
+}

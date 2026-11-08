@@ -322,8 +322,16 @@ func (f *fallbackLookup) untriedAfter(i int, now time.Time) bool {
 	return slices.ContainsFunc(f.sources[i+1:], func(ts *trackedSource) bool { return !now.Before(ts.until) })
 }
 
-// settle logs a failure and, when charge is true, starts its cooldown.
+// settle logs a failure and, when charge is true, starts its cooldown. A lone
+// source is never put on cooldown.
 func (f *fallbackLookup) settle(sf sourceFailure, now time.Time, charge bool) {
+	if len(f.sources) == 1 {
+		// A cooldown would only fail the next sync, as there is nothing to fall
+		// back to, so only a Retry-After the provider sent applies.
+		sf.ts.until = now.Add(retryAfter(sf.err))
+		f.logger.Warn("public IP source failed", "error", sf.err)
+		return
+	}
 	if !charge {
 		sf.ts.unreachable = nil
 		f.logger.Warn("public IP source failed", "error", sf.err)
