@@ -103,7 +103,7 @@ Requires Go 1.27 or newer.
 ```sh
 go test -race ./...
 golangci-lint run
-go build -o cloudflare-ddns
+go build -o cloudflare-ddns ./cmd/cloudflare-ddns
 ```
 
 CI runs the tests, golangci-lint (including `gofmt` and `govet`), govulncheck and a Docker build for amd64, arm64, armv7 and armv6 on every push to `master` and on pull requests.
