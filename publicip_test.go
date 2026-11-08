@@ -44,7 +44,7 @@ func TestPublicIPLookupCurrent(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			got, err := (&publicIPLookup{client: srv.Client(), url: srv.URL, extract: tt.extract}).Current(context.Background())
+			got, err := (&publicIPLookup{client: srv.Client(), ipProvider: ipProvider{url: srv.URL, extract: tt.extract}}).Current(context.Background())
 			if (err != nil) != tt.wantErr || got != tt.want {
 				t.Errorf("Current() = %q, %v; want %q, wantErr %v", got, err, tt.want, tt.wantErr)
 			}
@@ -54,7 +54,7 @@ func TestPublicIPLookupCurrent(t *testing.T) {
 
 func TestPublicIPLookupRequestErrors(t *testing.T) {
 	for _, url := range []string{"http://127.0.0.1:1", "http://bad host"} {
-		if _, err := (&publicIPLookup{client: http.DefaultClient, url: url, extract: strings.TrimSpace}).Current(context.Background()); err == nil {
+		if _, err := (&publicIPLookup{client: http.DefaultClient, ipProvider: ipProvider{url: url, extract: strings.TrimSpace}}).Current(context.Background()); err == nil {
 			t.Errorf("url %q: expected error", url)
 		}
 	}
@@ -66,7 +66,7 @@ func TestPublicIPLookupTruncatesBodyInError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := (&publicIPLookup{client: srv.Client(), url: srv.URL, extract: strings.TrimSpace}).Current(context.Background())
+	_, err := (&publicIPLookup{client: srv.Client(), ipProvider: ipProvider{url: srv.URL, extract: strings.TrimSpace}}).Current(context.Background())
 	if err == nil || len(err.Error()) > 200+len(srv.URL) || !strings.Contains(err.Error(), srv.URL) {
 		t.Errorf("err = %v, want short error naming %s", err, srv.URL)
 	}
@@ -78,7 +78,7 @@ func TestNewIPv4ClientDialsIPv4(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got, err := (&publicIPLookup{client: newIPv4Client(time.Second), url: srv.URL, extract: strings.TrimSpace}).Current(context.Background())
+	got, err := (&publicIPLookup{client: newIPv4Client(time.Second), ipProvider: ipProvider{url: srv.URL, extract: strings.TrimSpace}}).Current(context.Background())
 	if err != nil || got != "7.7.7.7" {
 		t.Errorf("Current() = %q, %v", got, err)
 	}
@@ -435,7 +435,7 @@ func TestPublicIPLookupSendsAccept(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	l := &publicIPLookup{client: srv.Client(), url: srv.URL, extract: strings.TrimSpace, accept: dnsMessageType}
+	l := &publicIPLookup{client: srv.Client(), ipProvider: ipProvider{url: srv.URL, extract: strings.TrimSpace, accept: dnsMessageType}}
 	if _, err := l.Current(context.Background()); err != nil || got != dnsMessageType {
 		t.Errorf("Accept = %q, err %v; want %q", got, err, dnsMessageType)
 	}

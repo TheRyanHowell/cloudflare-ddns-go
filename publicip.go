@@ -53,10 +53,8 @@ func newIPv4Client(timeout time.Duration) *http.Client {
 
 // publicIPLookup discovers this host's public IPv4 address.
 type publicIPLookup struct {
-	client  *http.Client
-	url     string
-	extract func(body string) string
-	accept  string
+	client *http.Client
+	ipProvider
 }
 
 // Current returns the public IPv4 address in dotted form.
@@ -115,7 +113,7 @@ func newPublicIPSource(logger *slog.Logger, client *http.Client, names []string)
 	sources := make([]ipSource, 0, len(names))
 	for _, name := range names {
 		p := ipProviders[name]
-		sources = append(sources, &publicIPLookup{client: client, url: p.url, extract: p.extract, accept: p.accept})
+		sources = append(sources, &publicIPLookup{client: client, ipProvider: p})
 	}
 	return newFallbackLookup(logger, sources...)
 }
