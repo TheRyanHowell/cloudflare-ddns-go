@@ -1,185 +1,83 @@
 # Cloudflare DDNS Go
 
-A small daemon that keeps a Cloudflare DNS `A` record pointed at your host's public IPv4 address.
+Keeps a Cloudflare DNS `A` record pointed at your public IPv4 address. It checks every 5 minutes, asking a list of IP providers in turn, and updates the record only when the address changes.
 
-Every 5 minutes (configurable) it looks up the current public IP, trying a list of providers in order until one answers. It updates the record only when the address has changed. It ships as a static binary in a `scratch` container image.
+Run it as a Docker container, as a standalone binary, or use it as a Go library.
 
-## Requirements
+## Quick start
 
-- Docker with Docker Compose
-- A Cloudflare API token with **Zone → DNS → Edit** permission for the zone
-- An existing `A` record to manage (the daemon updates records but does not create them)
-
-## Configuration
-
-Copy the example environment file and fill it in:
+You need Docker with Docker Compose, a Cloudflare API token with **Zone → DNS → Edit** permission, and an existing `A` record to manage.
 
 ```sh
-cp .env.example .env
+cp .env.example .env   # fill in the token, zone ID, record ID and record name
+make run               # build and start the daemon
+make logs              # follow its logs
 ```
 
-| Variable | Flag | Required | Description |
-|---|---|---|---|
-| `CLOUDFLARE_API_TOKEN` | `--token` | Yes, or the next | Cloudflare API token |
-| `CLOUDFLARE_API_TOKEN_FILE` | `--token-file` | | Path to a file holding the token instead, such as a Docker secret. Set only one of the two. The file must be readable by UID 65532 |
-| `CLOUDFLARE_ZONE_ID` | `--zone-id` | Yes | Zone ID, shown on the zone's Overview page in the Cloudflare dashboard |
-| `CLOUDFLARE_RECORD_ID` | `--record-id` | Yes | ID of the `A` record to update |
-| `CLOUDFLARE_RECORD_NAME` | `--record-name` | Yes | The record's full name, e.g. `home.example.com`. Unicode names are accepted |
-| `SYNC_INTERVAL` | `--interval` | No | How often to check the public IP, as a Go duration such as `10m`. Between `30s` and `24h` (default `5m`) |
-| `CLOUDFLARE_RECORD_TTL` | `--ttl` | No | Record TTL in seconds: `1` for automatic, or `30` to `86400`. Cloudflare only accepts values below `60` on Enterprise plans (default `300`) |
-| `IP_PROVIDERS` | `--providers` | No | Comma-separated public IP providers, in the order to try them (default: all of them, see [IP providers](docs/ip-providers.md)) |
-| `HEALTH_ADDR` | `--health-addr` | No | Listen address for the health endpoint (default `127.0.0.1:8080`) |
+`make run` builds a native image for this machine's architecture. To build for another, set `PLATFORM`, for example `make run PLATFORM=linux/arm/v7`. Without `make`, use `docker compose up -d`, with `DOCKER_DEFAULT_PLATFORM` to pick a platform. Run `make help` for every target.
 
-To keep the token out of `.env`, store it as a Docker secret and point `CLOUDFLARE_API_TOKEN_FILE` at it:
+Supported platforms: `linux/amd64`, `386`, `arm64`, `arm/v7`, `arm/v6`, `arm/v5`, `riscv64`, `ppc64le`, `s390x`, `mips64le` and `loong64`.
 
-```yaml
-services:
-  app:
-    environment:
-      CLOUDFLARE_API_TOKEN_FILE: /run/secrets/cloudflare_token
-    secrets:
-      - cloudflare_token
-secrets:
-  cloudflare_token:
-    file: ./cloudflare_token.txt
-```
+## Install the binary
 
-To find the record ID, list the zone's records:
-
-```sh
-curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-  "https://api.cloudflare.com/client/v4/zones/$CLOUDFLARE_ZONE_ID/dns_records?type=A"
-```
-
-## Usage
-
-```sh
-make run      # build and start the daemon with Docker Compose
-make logs     # follow its logs
-make stop     # stop it
-```
-
-`make run` detects this machine's architecture and builds a native image. It supports `linux/amd64`, `386`, `arm64`, `arm/v7`, `arm/v6`, `arm/v5`, `riscv64`, `ppc64le`, `s390x`, `mips64le` and `loong64`. To choose a platform yourself, for example when building on another machine, set `PLATFORM`:
-
-```sh
-make run PLATFORM=linux/arm/v7
-```
-
-Without `make`, use Docker Compose directly, setting `DOCKER_DEFAULT_PLATFORM` to pick a platform:
-
-```sh
-DOCKER_DEFAULT_PLATFORM=linux/arm64 docker compose up -d
-```
-
-Run `make help` for every target.
-
-## How it works
-
-- Records are always written as DNS-only (not proxied), with the configured TTL.
-- Only IPv4 is supported.
-- The container runs with least privilege: a non-root user (UID 65532), a read-only filesystem, no Linux capabilities and `no-new-privileges`.
-- The public IP comes from the first provider in `IP_PROVIDERS` that answers. Providers are reached over HTTPS, and the default list spans eight independent networks: `cloudflare`, `amazon`, `akamai`, `opendns`, `ripe`, `hetzner`, `mullvad`, `ipinfo`, `ipify` and `icanhazip`. See [IP providers](docs/ip-providers.md).
-- A provider that fails is skipped for a while, and a local network outage costs only a few requests per sync. See [failure handling](docs/failure-handling.md).
-- Temporary Cloudflare errors are retried at the next sync. A rejected token or a wrong record ID makes the daemon report unhealthy and exit after an hour, so it retries hourly.
-
-## Health check
-
-The daemon serves `GET /healthz` on `HEALTH_ADDR`. It returns `200` while syncs are succeeding and `503` once the last success is too old (18 minutes with the defaults) or after a permanent failure. The [failure handling](docs/failure-handling.md#health-window) page explains the window.
-
-The Compose healthcheck runs `/cloudflare-ddns healthcheck`, which probes that endpoint from inside the container.
-
-## Command line
-
-The same binary runs outside Docker. Install it with Go 1.27 or newer:
+Download a binary for Linux, macOS, Windows or FreeBSD from the [releases page](https://github.com/TheRyanHowell/cloudflare-ddns-go/releases), or install it with Go 1.27 or newer:
 
 ```sh
 go install github.com/TheRyanHowell/cloudflare-ddns-go/cmd/cloudflare-ddns@latest
 ```
 
-```
-cloudflare-ddns [command] [flags]
-```
+## Configuration
+
+Each setting is an environment variable or a flag. A flag you set wins.
+
+| Variable | Flag | Required | Description |
+|---|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | `--token` | Yes, or the next | Cloudflare API token |
+| `CLOUDFLARE_API_TOKEN_FILE` | `--token-file` | | Path to a file holding the token, such as a Docker secret |
+| `CLOUDFLARE_ZONE_ID` | `--zone-id` | Yes | Zone ID |
+| `CLOUDFLARE_RECORD_ID` | `--record-id` | Yes | ID of the `A` record to update |
+| `CLOUDFLARE_RECORD_NAME` | `--record-name` | Yes | The record's full name, such as `home.example.com` |
+| `SYNC_INTERVAL` | `--interval` | No | How often to check, from `30s` to `24h` (default `5m`) |
+| `CLOUDFLARE_RECORD_TTL` | `--ttl` | No | Record TTL in seconds: `1` for automatic, or `30` to `86400` (default `300`). Values below `60` need an Enterprise plan |
+| `IP_PROVIDERS` | `--providers` | No | Comma-separated [IP providers](docs/ip-providers.md) to try, in order (default: all) |
+| `HEALTH_ADDR` | `--health-addr` | No | Health endpoint address (default `127.0.0.1:8080`) |
+
+[Configuration](docs/configuration.md) covers creating the token, using a Docker secret, finding the record ID, and how flags and the environment combine.
+
+## Commands
 
 | Command | What it does |
 |---|---|
-| `run` | Runs the daemon. This is also what runs when you give no command, so the container's entrypoint and healthcheck work unchanged |
-| `sync` | Checks the record once, updates it if the public IP differs, and exits. Prints `updated <name>: <old> -> <new>` or `<name> is already <ip>` |
-| `ip` | Prints the public IP address and nothing else. Needs no Cloudflare settings |
-| `healthcheck` | Probes the health endpoint of a running daemon |
+| `run` | Runs the daemon. This is the default when no command is given |
+| `sync` | Updates the record once if needed, prints what it did, and exits |
+| `ip` | Prints the public IP address |
+| `healthcheck` | Probes a running daemon's health endpoint |
 | `version` | Prints the version |
-| `completion` | Prints a shell completion script for bash, zsh, fish or PowerShell |
+| `completion` | Prints a shell completion script |
 
-`cloudflare-ddns <command> --help` lists a command's flags. The exit code is `0` on success, `1` on a configuration or runtime error (the message goes to stderr) and `2` for an unknown command or a bad flag.
+`cloudflare-ddns <command> --help` lists a command's flags. Exit codes are `0` for success, `1` for an error and `2` for a usage mistake.
 
-To update a record from cron every ten minutes:
+To update the record from cron instead of running the daemon:
 
 ```cron
 */10 * * * * cloudflare-ddns sync --token-file /etc/cloudflare-ddns/token --zone-id ZONE_ID --record-id RECORD_ID --record-name home.example.com
 ```
 
-Every flag in the table above falls back to its environment variable, and a flag you set wins. A flag left empty, such as an unset shell variable, falls back to the environment. Setting `--token` or `--token-file` makes the command ignore all the token variables, so a flag replaces the environment's token instead of clashing with it. Values go through the same validation either way, and errors describe the setting, such as `record TTL`, rather than a flag or variable.
+## How it works
 
-`--token` puts the secret in the process list, where other users on the machine can read it. Use `--token-file` or the environment instead.
-
-## Library
-
-The packages are importable on their own. This looks up the public IP and brings a record in step with it once:
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-	"log"
-
-	"github.com/TheRyanHowell/cloudflare-ddns-go/cloudflare"
-	"github.com/TheRyanHowell/cloudflare-ddns-go/ddns"
-	"github.com/TheRyanHowell/cloudflare-ddns-go/publicip"
-)
-
-func main() {
-	ctx := context.Background()
-
-	lookup, err := publicip.New(publicip.Providers())
-	if err != nil {
-		log.Fatal(err)
-	}
-	ip, err := lookup.Current(ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("public IP:", ip)
-
-	record := cloudflare.NewRecord(cloudflare.RecordConfig{
-		Token:    "API_TOKEN",
-		ZoneID:   "ZONE_ID",
-		RecordID: "RECORD_ID",
-		Name:     "home.example.com",
-		TTL:      300,
-	})
-	syncer := ddns.New(record, lookup, ddns.WithPermanentCheck(cloudflare.IsPermanent))
-	ip, changed, err := syncer.Sync(ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("record is", ip, "updated:", changed)
-}
-```
-
-`Sync` wraps errors that retrying cannot fix, such as a rejected token, with `ddns.ErrPermanent`. See [architecture](docs/architecture.md) for how the packages fit together.
-
-## Releases
-
-Releases follow [Semantic Versioning 2.0](https://semver.org/) and are tagged `vMAJOR.MINOR.PATCH`. Each [GitHub release](https://github.com/TheRyanHowell/cloudflare-ddns-go/releases) has prebuilt binaries for Linux (every platform listed under Usage), macOS, Windows and FreeBSD, with checksums.
-
-To cut a release, run `make release VERSION=v1.2.3`. It checks the version is valid semver and newer than the last tag, then creates the tag locally. Pushing the tag (`git push origin v1.2.3`) builds and publishes the release.
+- The record is written as DNS-only (not proxied), with the configured TTL. Only IPv4 is supported.
+- Every IP provider is reached over HTTPS. The default list spans eight independent networks, and a provider that fails is skipped for a while.
+- Temporary errors are retried at the next sync. A rejected token or a wrong record ID makes the daemon report unhealthy and exit after an hour, so a restarting container retries hourly.
+- `GET /healthz` returns `200` while syncs succeed and `503` when they stop (after 18 minutes with the defaults). The Compose healthcheck uses it.
+- The container runs as a non-root user with a read-only filesystem and no Linux capabilities.
 
 ## Documentation
 
+- [Configuration](docs/configuration.md): the token, Docker secrets, finding the record ID, and flags versus the environment
 - [IP providers](docs/ip-providers.md): the providers, their networks, rate limits and default order
 - [Failure handling](docs/failure-handling.md): cooldowns, outages, permanent failures and the health window
 - [Troubleshooting](docs/troubleshooting.md): what the log messages mean and how to fix them
+- [Library](docs/library.md): using the Go packages
 - [Architecture](docs/architecture.md): how the code is organised and how a sync works
 
 ## Development
@@ -189,12 +87,12 @@ Requires Go 1.27 or newer.
 ```sh
 make check    # tests with the race detector, golangci-lint and govulncheck
 make build    # build ./cloudflare-ddns
-make images   # build the image for every supported platform (needs a buildx builder)
+make images   # build the image for every platform (needs a buildx builder)
 ```
 
-The supported platforms are listed once, in `PLATFORMS` in the `Makefile`; add an architecture there to support it.
+Platforms are listed once, in `PLATFORMS` in the `Makefile`. CI runs the same checks and builds every platform on each push to `master` and on pull requests.
 
-CI runs the same checks and builds the image for every platform on each push to `master` and on pull requests.
+Releases follow [Semantic Versioning 2.0](https://semver.org/). `make release VERSION=v1.2.3` checks the version and tags it locally; pushing the tag (`git push origin v1.2.3`) builds and publishes the release with binaries and checksums.
 
 ## License
 

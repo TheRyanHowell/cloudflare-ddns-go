@@ -27,7 +27,7 @@ The root command and `run` both run the daemon, so a bare `cloudflare-ddns` beha
 
 Flags are an overlay on the environment, not a second configuration path. `overlay` returns a `getenv` that answers from the flags that were set and falls back to the real environment, and the existing loaders (`loadConfig`, `ipProviderList`, `healthAddr`) read from it. Every validation rule and error message therefore applies to flags as well. Setting either token flag hides all the token variables, so a flag cleanly replaces the environment's token.
 
-`app.execute` returns the exit code. Cobra's usage and error printing are silenced, and the errors are mapped by hand: a `usageError` (unknown command, bad flag or stray argument) prints the command's usage and exits `2`, and any other error is logged and exits `1`. `sync` learns the record's previous address by wrapping the `RecordStore` in `observedRecord`, because `Syncer.Sync` reports only the new address and whether it changed.
+`app.execute` returns the exit code. Cobra's usage and error printing are silenced, and the errors are mapped by hand: a `usageError` (unknown command, bad flag or stray argument) prints the command's usage and exits `2`, and any other error is logged and exits `1`, except a cancellation caused by SIGINT or SIGTERM, which exits `0` like the daemon. `sync` learns the record's previous address by wrapping the `RecordStore` in `observedRecord`, because `Syncer.Sync` reports only the new address and whether it changed.
 
 ## Startup
 
@@ -76,3 +76,12 @@ All lookups share one HTTP client that only dials over IPv4, so a dual-stack hos
 ## Testing
 
 Tests sit beside the code in each package, and fuzz tests cover the parsers and validators. They run against `httptest` servers instead of the real providers or Cloudflare, and the fallback tests use an injected clock, so the suite runs in about a second. The command tests run the cobra tree through `app.execute` with captured streams and an HTTP client that redirects every request to one `httptest` server, so `sync` and `ip` are tested end to end without the network. Run it with `go test -race ./...`.
+
+## Building and releasing
+
+- **Platforms** are listed once, in `PLATFORMS` in the `Makefile`. `make` maps the host's `uname -m` to a Docker platform for `make run` and `make image`, and `make images` builds every platform.
+- **The Dockerfile** cross-compiles: the build stage runs on the build machine and sets `GOOS`, `GOARCH` and `GOARM` from the target platform, so no emulation is needed. The final image is `scratch` with the CA bundle and the binary, running as UID 65532.
+- **CI** (`.github/workflows/ci.yml`) runs the tests with the race detector, golangci-lint, govulncheck, `make check-platforms` and `make images` on every push to `master` and on pull requests.
+- **Releases** (`.github/workflows/release.yml`) run GoReleaser when a `v*` tag is pushed. `.goreleaser.yaml` builds the command for every Linux platform in `PLATFORMS` plus macOS, Windows and FreeBSD, stamps the version with `-ldflags -X main.version`, and attaches archives and checksums to the GitHub release. `make check-platforms` keeps its Linux targets in step with `PLATFORMS`.
+
+See also [configuration](configuration.md) for settings and [library](library.md) for using the packages.

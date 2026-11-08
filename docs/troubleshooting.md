@@ -2,7 +2,7 @@
 
 Log lines below are in the daemon's format, for example `level=ERROR msg=exiting error="..."`. Read them with `docker compose logs -f`.
 
-After changing `.env`, run `docker compose up -d` so the container is recreated with the new values. A plain restart keeps the old ones.
+After changing `.env`, run `make run` (or `docker compose up -d`) so the container is recreated with the new values. A plain restart keeps the old ones.
 
 ## The container exits at once and keeps restarting
 
@@ -10,7 +10,7 @@ The configuration was rejected. The log line is `msg=exiting` with one of these 
 
 | Error | Fix |
 |---|---|
-| `API token is not set`, `zone ID is not set`, … | Set the missing setting, as a flag or in `.env` (see the README's configuration table) |
+| `API token is not set`, `zone ID is not set`, … | Set the missing setting, as a flag or in `.env` (see the [README](../README.md#configuration)) |
 | `set the API token only once, either directly or as a file` | The token is given both directly and as a file. Keep one |
 | `read API token file: ...` or `API token file "..." is empty` | The token file is missing, unreadable by UID 65532, or empty |
 | `record name "home" must be the record's full name` | Use the full name, such as `home.example.com`, not `home` or `@` |
@@ -22,12 +22,12 @@ The configuration was rejected. The log line is `msg=exiting` with one of these 
 
 ## `permanent failure, exiting after a delay`
 
-The daemon reached Cloudflare but cannot manage the record. It reports unhealthy and exits after an hour, then Compose restarts it. Fix the cause and run `docker compose up -d`.
+The daemon reached Cloudflare but cannot manage the record. It reports unhealthy and exits after an hour, then Compose restarts it. Fix the cause and run `make run` (or `docker compose up -d`).
 
 | Error contains | Cause and fix |
 |---|---|
 | `unexpected status 401` or `403` | The token is wrong, expired or lacks permission. It needs **Zone → DNS → Edit** on this zone. For a user-owned token, check it with `curl -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/user/tokens/verify` |
-| `unexpected status 404` | The zone ID or record ID is wrong. List the zone's records with the `curl` command in the README and copy the `id` of the record you want |
+| `unexpected status 404` | The zone ID or record ID is wrong. List the zone's records as shown in [configuration](configuration.md#finding-the-record-id) and copy the `id` of the record you want |
 | `invalid DNS record: type "AAAA", want "A"` | The record ID points to a record that is not an `A` record |
 | `invalid DNS record: name "...", want "..."` | The record ID belongs to a different record than the configured record name. Check both; the daemon refuses rather than renaming the wrong record |
 | `invalid DNS record: no content` | The record has no address. Give it any IPv4 address in the dashboard and the daemon will correct it |
