@@ -23,11 +23,11 @@ func TestPublicIPLookupCurrent(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		{name: "ok", extract: plainTextIP, body: "9.8.7.6\n", status: http.StatusOK, want: "9.8.7.6"},
-		{name: "ipv4 mapped", extract: plainTextIP, body: "::ffff:1.2.3.4", status: http.StatusOK, want: "1.2.3.4"},
-		{name: "ipv6", extract: plainTextIP, body: "2001:db8::1", status: http.StatusOK, wantErr: true},
-		{name: "garbage", extract: plainTextIP, body: "hello", status: http.StatusOK, wantErr: true},
-		{name: "status", extract: plainTextIP, status: http.StatusInternalServerError, wantErr: true},
+		{name: "ok", extract: strings.TrimSpace, body: "9.8.7.6\n", status: http.StatusOK, want: "9.8.7.6"},
+		{name: "ipv4 mapped", extract: strings.TrimSpace, body: "::ffff:1.2.3.4", status: http.StatusOK, want: "1.2.3.4"},
+		{name: "ipv6", extract: strings.TrimSpace, body: "2001:db8::1", status: http.StatusOK, wantErr: true},
+		{name: "garbage", extract: strings.TrimSpace, body: "hello", status: http.StatusOK, wantErr: true},
+		{name: "status", extract: strings.TrimSpace, status: http.StatusInternalServerError, wantErr: true},
 		{name: "trace", extract: traceIP, body: "fl=1\nh=1.1.1.1\nip=9.8.7.6\nts=1\n", status: http.StatusOK, want: "9.8.7.6"},
 		{name: "trace ipv6", extract: traceIP, body: "ip=2001:db8::1\n", status: http.StatusOK, wantErr: true},
 		{name: "trace without ip", extract: traceIP, body: "fl=1\nh=1.1.1.1\n", status: http.StatusOK, wantErr: true},
@@ -50,7 +50,7 @@ func TestPublicIPLookupCurrent(t *testing.T) {
 
 func TestPublicIPLookupRequestErrors(t *testing.T) {
 	for _, url := range []string{"http://127.0.0.1:1", "http://bad host"} {
-		if _, err := (&publicIPLookup{client: http.DefaultClient, url: url, extract: plainTextIP}).Current(context.Background()); err == nil {
+		if _, err := (&publicIPLookup{client: http.DefaultClient, url: url, extract: strings.TrimSpace}).Current(context.Background()); err == nil {
 			t.Errorf("url %q: expected error", url)
 		}
 	}
@@ -62,9 +62,9 @@ func TestPublicIPLookupTruncatesBodyInError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := (&publicIPLookup{client: srv.Client(), url: srv.URL, extract: plainTextIP}).Current(context.Background())
-	if err == nil || len(err.Error()) > 200+len(srv.URL) {
-		t.Errorf("err = %v, want short error", err)
+	_, err := (&publicIPLookup{client: srv.Client(), url: srv.URL, extract: strings.TrimSpace}).Current(context.Background())
+	if err == nil || len(err.Error()) > 200+len(srv.URL) || !strings.Contains(err.Error(), srv.URL) {
+		t.Errorf("err = %v, want short error naming %s", err, srv.URL)
 	}
 }
 
@@ -74,7 +74,7 @@ func TestNewIPv4ClientDialsIPv4(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got, err := (&publicIPLookup{client: newIPv4Client(time.Second), url: srv.URL, extract: plainTextIP}).Current(context.Background())
+	got, err := (&publicIPLookup{client: newIPv4Client(time.Second), url: srv.URL, extract: strings.TrimSpace}).Current(context.Background())
 	if err != nil || got != "7.7.7.7" {
 		t.Errorf("Current() = %q, %v", got, err)
 	}
@@ -92,18 +92,6 @@ func TestTraceIP(t *testing.T) {
 		if got := traceIP(body); got != want {
 			t.Errorf("traceIP(%q) = %q, want %q", body, got, want)
 		}
-	}
-}
-
-func TestPublicIPLookupErrorNamesSource(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		io.WriteString(w, "hello")
-	}))
-	defer srv.Close()
-
-	_, err := (&publicIPLookup{client: srv.Client(), url: srv.URL, extract: plainTextIP}).Current(context.Background())
-	if err == nil || !strings.Contains(err.Error(), srv.URL) {
-		t.Errorf("err = %v, want containing %q", err, srv.URL)
 	}
 }
 

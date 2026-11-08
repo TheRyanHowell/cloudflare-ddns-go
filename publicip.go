@@ -62,9 +62,6 @@ func (l *publicIPLookup) Current(ctx context.Context) (string, error) {
 	return addr.Unmap().String(), nil
 }
 
-// plainTextIP reads a body that holds only the address, as icanhazip returns.
-func plainTextIP(body string) string { return strings.TrimSpace(body) }
-
 // traceIP reads the address from the ip= line of a Cloudflare trace, or
 // returns "" when there is none.
 func traceIP(body string) string {
@@ -80,7 +77,7 @@ func traceIP(body string) string {
 func newPublicIPSource(logger *slog.Logger, client *http.Client) *fallbackLookup {
 	return &fallbackLookup{logger: logger, sources: []ipSource{
 		&publicIPLookup{client: client, url: cloudflareTraceURL, extract: traceIP},
-		&publicIPLookup{client: client, url: icanhazipURL, extract: plainTextIP},
+		&publicIPLookup{client: client, url: icanhazipURL, extract: strings.TrimSpace},
 	}}
 }
 
