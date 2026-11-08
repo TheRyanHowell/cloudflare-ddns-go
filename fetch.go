@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 )
 
 const (
 	// maxResponseBytes caps how much of a response body is accepted.
 	maxResponseBytes = 1 << 20
+	// maxRetryAfter caps how long a server can ask us to wait.
+	maxRetryAfter = 24 * time.Hour
 	// maxErrorSnippetBytes caps how much of an error body is quoted in errors.
 	maxErrorSnippetBytes = 256
 )
@@ -20,6 +24,8 @@ type statusError struct {
 	code   int
 	status string
 	body   string
+	// retryAfter is the server's Retry-After delay, or 0 when absent.
+	retryAfter time.Duration
 }
 
 func (e *statusError) Error() string {
@@ -56,7 +62,12 @@ func fetch(client *http.Client, req *http.Request) ([]byte, error) {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, &statusError{code: resp.StatusCode, status: resp.Status, body: snippet(body)}
+		return nil, &statusError{
+			code:       resp.StatusCode,
+			status:     resp.Status,
+			body:       snippet(body),
+			retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()),
+		}
 	}
 	if len(body) > maxResponseBytes {
 		return nil, fmt.Errorf("response exceeds %d bytes", maxResponseBytes)
@@ -70,4 +81,23 @@ func snippet(body []byte) string {
 		return strings.ToValidUTF8(text[:maxErrorSnippetBytes], "") + "..."
 	}
 	return text
+}
+
+// parseRetryAfter reads a Retry-After header given in seconds or as an HTTP
+// date, returning 0 when it is absent, invalid or in the past.
+func parseRetryAfter(value string, now time.Time) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	var d time.Duration
+	if secs, err := strconv.Atoi(value); err == nil {
+		if secs > int(maxRetryAfter/time.Second) {
+			return maxRetryAfter
+		}
+		d = time.Duration(secs) * time.Second
+	} else if at, err := http.ParseTime(value); err == nil {
+		d = at.Sub(now)
+	}
+	return min(max(d, 0), maxRetryAfter)
 }
