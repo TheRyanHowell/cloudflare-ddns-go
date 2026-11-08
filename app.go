@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/TheRyanHowell/cloudflare-ddns-go/cloudflare"
 	"github.com/TheRyanHowell/cloudflare-ddns-go/publicip"
 	"golang.org/x/sync/errgroup"
 )
@@ -44,7 +45,7 @@ func run(ctx context.Context, logger *slog.Logger, args []string, getenv func(st
 	state := newHealth()
 	s := &syncer{
 		logger:            logger,
-		record:            &cloudflareRecord{client: &http.Client{Timeout: requestTimeout}, baseURL: cloudflareAPIBaseURL, cfg: cfg},
+		record:            newRecord(cfg),
 		lookup:            lookup,
 		health:            state,
 		interval:          cfg.interval,
@@ -54,6 +55,16 @@ func run(ctx context.Context, logger *slog.Logger, args []string, getenv func(st
 
 	srv := newHealthServer(addr, state.handler(healthStaleAfter(cfg.interval, len(cfg.providers))))
 	return runAll(ctx, srv, s)
+}
+
+func newRecord(cfg config) *cloudflare.Record {
+	return cloudflare.NewRecord(cloudflare.RecordConfig{
+		Token:    cfg.apiKey,
+		ZoneID:   cfg.zoneID,
+		RecordID: cfg.recordID,
+		Name:     cfg.recordName,
+		TTL:      cfg.ttl,
+	}, cloudflare.WithHTTPClient(&http.Client{Timeout: requestTimeout}))
 }
 
 // healthStaleAfter allows two and a half sync intervals plus one slow sync, in

@@ -1,4 +1,5 @@
-package main
+// Package cloudflare reads and updates one DNS A record through the Cloudflare API.
+package cloudflare
 
 import (
 	"bytes"
@@ -9,18 +10,21 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/TheRyanHowell/cloudflare-ddns-go/internal/fetch"
 	"golang.org/x/net/idna"
 )
 
 const (
-	cloudflareAPIBaseURL = "https://api.cloudflare.com/client/v4"
-	recordType           = "A"
+	defaultBaseURL = "https://api.cloudflare.com/client/v4"
+	recordType     = "A"
+	// requestTimeout bounds each request of the default client.
+	requestTimeout = 30 * time.Second
 )
 
-// errInvalidRecord marks a record that exists but cannot be managed.
-var errInvalidRecord = errors.New("invalid DNS record")
+// ErrInvalidRecord marks a record that exists but cannot be managed.
+var ErrInvalidRecord = errors.New("invalid DNS record")
 
 // recordRequest is the body Cloudflare expects when overwriting a DNS record.
 type recordRequest struct {
@@ -41,25 +45,53 @@ type recordResponse struct {
 	} `json:"result"`
 }
 
-// cloudflareRecord reads and updates one DNS record through the Cloudflare API.
-type cloudflareRecord struct {
-	client  *http.Client
-	baseURL string
-	cfg     config
+// RecordConfig identifies the record and the values Update writes.
+type RecordConfig struct {
+	Token    string
+	ZoneID   string
+	RecordID string
+	// Name is the record's full name, which Content checks and Update writes.
+	Name string
+	TTL  int
 }
 
-func (r *cloudflareRecord) newRequest(ctx context.Context, method string, body io.Reader) (*http.Request, error) {
-	url := r.baseURL + "/zones/" + r.cfg.zoneID + "/dns_records/" + r.cfg.recordID
+// Record reads and updates one DNS record through the Cloudflare API.
+type Record struct {
+	client  *http.Client
+	baseURL string
+	cfg     RecordConfig
+}
+
+// Option configures NewRecord.
+type Option func(*Record)
+
+// WithHTTPClient replaces the default client.
+func WithHTTPClient(c *http.Client) Option { return func(r *Record) { r.client = c } }
+
+// WithBaseURL replaces the Cloudflare API base URL, for tests.
+func WithBaseURL(url string) Option { return func(r *Record) { r.baseURL = url } }
+
+// NewRecord returns a Record for cfg.
+func NewRecord(cfg RecordConfig, opts ...Option) *Record {
+	r := &Record{client: &http.Client{Timeout: requestTimeout}, baseURL: defaultBaseURL, cfg: cfg}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
+}
+
+func (r *Record) newRequest(ctx context.Context, method string, body io.Reader) (*http.Request, error) {
+	url := r.baseURL + "/zones/" + r.cfg.ZoneID + "/dns_records/" + r.cfg.RecordID
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+r.cfg.apiKey)
+	req.Header.Set("Authorization", "Bearer "+r.cfg.Token)
 	return req, nil
 }
 
 // Content returns the IP the record currently holds.
-func (r *cloudflareRecord) Content(ctx context.Context) (string, error) {
+func (r *Record) Content(ctx context.Context) (string, error) {
 	req, err := r.newRequest(ctx, http.MethodGet, nil)
 	if err != nil {
 		return "", fmt.Errorf("build record request: %w", err)
@@ -73,25 +105,25 @@ func (r *cloudflareRecord) Content(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("decode DNS record: %w", err)
 	}
 	if resp.Result.Type != recordType {
-		return "", fmt.Errorf("%w: type %q, want %q", errInvalidRecord, resp.Result.Type, recordType)
+		return "", fmt.Errorf("%w: type %q, want %q", ErrInvalidRecord, resp.Result.Type, recordType)
 	}
 	if resp.Result.Content == "" {
-		return "", fmt.Errorf("%w: no content", errInvalidRecord)
+		return "", fmt.Errorf("%w: no content", ErrInvalidRecord)
 	}
-	// Update writes recordName, so a record ID for another name would be renamed.
-	if !recordNameMatches(resp.Result.Name, r.cfg.recordName) {
-		return "", fmt.Errorf("%w: name %q, want %q (use the record's full name)", errInvalidRecord, resp.Result.Name, r.cfg.recordName)
+	// Update writes Name, so a record ID for another name would be renamed.
+	if !recordNameMatches(resp.Result.Name, r.cfg.Name) {
+		return "", fmt.Errorf("%w: name %q, want %q (use the record's full name)", ErrInvalidRecord, resp.Result.Name, r.cfg.Name)
 	}
 	return resp.Result.Content, nil
 }
 
 // Update points the record at ip.
-func (r *cloudflareRecord) Update(ctx context.Context, ip string) error {
+func (r *Record) Update(ctx context.Context, ip string) error {
 	payload, err := json.Marshal(recordRequest{
 		Content: ip,
-		Name:    r.cfg.recordName,
+		Name:    r.cfg.Name,
 		Type:    recordType,
-		TTL:     r.cfg.ttl,
+		TTL:     r.cfg.TTL,
 	})
 	if err != nil {
 		return fmt.Errorf("encode DNS record: %w", err)
@@ -124,10 +156,10 @@ func normalizeDNSName(name string) string {
 	return name
 }
 
-// permanent reports whether retrying err cannot help: rejected credentials, a
-// missing record, or a record that is not usable.
-func permanent(err error) bool {
-	if errors.Is(err, errInvalidRecord) {
+// IsPermanent reports whether retrying err cannot help: rejected credentials,
+// a missing record, or a record that is not usable.
+func IsPermanent(err error) bool {
+	if errors.Is(err, ErrInvalidRecord) {
 		return true
 	}
 	var se *fetch.StatusError

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/TheRyanHowell/cloudflare-ddns-go/cloudflare"
 )
 
 // errPermanentSync marks a record update that retrying cannot fix, such as a
@@ -99,7 +101,7 @@ func (s *syncer) loadRecord(ctx context.Context) (string, error) {
 		if err == nil {
 			return known, nil
 		}
-		if ctx.Err() != nil || permanent(err) {
+		if ctx.Err() != nil || cloudflare.IsPermanent(err) {
 			return "", err
 		}
 		s.logger.Warn("loading record failed, will retry", "error", err, "retry_in", s.startupRetryDelay)
@@ -123,7 +125,7 @@ func (s *syncer) sync(ctx context.Context, known string) (string, error) {
 	}
 	s.logger.Info("updating record", "from", known, "to", ip)
 	if err := s.record.Update(ctx, ip); err != nil {
-		if permanent(err) {
+		if cloudflare.IsPermanent(err) {
 			err = fmt.Errorf("%w: %w", errPermanentSync, err)
 		}
 		return known, err

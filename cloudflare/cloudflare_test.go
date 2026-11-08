@@ -1,4 +1,4 @@
-package main
+package cloudflare
 
 import (
 	"context"
@@ -10,15 +10,17 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/TheRyanHowell/cloudflare-ddns-go/internal/fetch"
 )
 
-var testConfig = config{apiKey: "key", zoneID: "z", recordID: "r", recordName: "home.example.com", ttl: 120}
+var testConfig = RecordConfig{Token: "key", ZoneID: "z", RecordID: "r", Name: "home.example.com", TTL: 120}
 
-func newTestRecord(t *testing.T, h http.HandlerFunc) *cloudflareRecord {
+func newTestRecord(t *testing.T, h http.HandlerFunc) *Record {
 	t.Helper()
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
-	return &cloudflareRecord{client: srv.Client(), baseURL: srv.URL, cfg: testConfig}
+	return NewRecord(testConfig, WithHTTPClient(srv.Client()), WithBaseURL(srv.URL))
 }
 
 func TestCloudflareRecordContent(t *testing.T) {
@@ -54,7 +56,7 @@ func TestCloudflareRecordContentNameMatching(t *testing.T) {
 				fmt.Fprintf(w, `{"result":{"type":"A","name":%q,"content":"1.2.3.4"}}`, tt.got)
 			})
 			_, err := rec.Content(context.Background())
-			if tt.wantErr != errors.Is(err, errInvalidRecord) || (!tt.wantErr && err != nil) {
+			if tt.wantErr != errors.Is(err, ErrInvalidRecord) || (!tt.wantErr && err != nil) {
 				t.Errorf("Content() err = %v, want invalid record: %v", err, tt.wantErr)
 			}
 		})
@@ -117,7 +119,7 @@ func TestCloudflareRecordUpdateStatusError(t *testing.T) {
 
 func TestCloudflareRecordRequestErrors(t *testing.T) {
 	for _, baseURL := range []string{"http://127.0.0.1:1", "http://bad host"} {
-		rec := &cloudflareRecord{client: http.DefaultClient, baseURL: baseURL, cfg: testConfig}
+		rec := NewRecord(testConfig, WithHTTPClient(http.DefaultClient), WithBaseURL(baseURL))
 		if _, err := rec.Content(context.Background()); err == nil {
 			t.Errorf("Content(%q): expected error", baseURL)
 		}
@@ -168,4 +170,38 @@ func FuzzNormalizeDNSName(f *testing.F) {
 			t.Errorf("normalizeDNSName is not idempotent: %q -> %q -> %q", name, got, again)
 		}
 	})
+}
+
+var errFake = errors.New("fake failure")
+
+func TestIsPermanent(t *testing.T) {
+	wrap := func(err error) error { return errors.Join(errFake, err) }
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"401", &fetch.StatusError{Code: 401}, true},
+		{"403", &fetch.StatusError{Code: 403}, true},
+		{"404", &fetch.StatusError{Code: 404}, true},
+		{"429", &fetch.StatusError{Code: 429}, false},
+		{"500", &fetch.StatusError{Code: 500}, false},
+		{"invalid record", ErrInvalidRecord, true},
+		{"wrapped status", wrap(&fetch.StatusError{Code: 403}), true},
+		{"network error", errFake, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsPermanent(tt.err); got != tt.want {
+				t.Errorf("IsPermanent(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewRecordDefaults(t *testing.T) {
+	r := NewRecord(testConfig)
+	if r.baseURL != "https://api.cloudflare.com/client/v4" || r.client.Timeout != requestTimeout || r.cfg != testConfig {
+		t.Errorf("NewRecord() = %+v, want the Cloudflare API with the default timeout", r)
+	}
 }

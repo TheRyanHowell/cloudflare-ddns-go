@@ -167,31 +167,6 @@ func TestRunCancelled(t *testing.T) {
 	}
 }
 
-func TestPermanent(t *testing.T) {
-	wrap := func(err error) error { return errors.Join(errFake, err) }
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"401", &fetch.StatusError{Code: 401}, true},
-		{"403", &fetch.StatusError{Code: 403}, true},
-		{"404", &fetch.StatusError{Code: 404}, true},
-		{"429", &fetch.StatusError{Code: 429}, false},
-		{"500", &fetch.StatusError{Code: 500}, false},
-		{"invalid record", errInvalidRecord, true},
-		{"wrapped status", wrap(&fetch.StatusError{Code: 403}), true},
-		{"network error", errFake, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := permanent(tt.err); got != tt.want {
-				t.Errorf("permanent(%v) = %v, want %v", tt.err, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestRunPermanentUpdateFailureIsFatal(t *testing.T) {
 	revoked := &fetch.StatusError{Code: 401, Status: "401 Unauthorized"}
 	record := &fakeRecord{content: "1.1.1.1", updateErrs: []error{revoked}}
