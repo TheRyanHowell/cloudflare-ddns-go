@@ -8,6 +8,6 @@
 *_test.go
 *.md
 LICENSE
-docker-compose.yml
+docker-compose*.yml
 Dockerfile
 docs

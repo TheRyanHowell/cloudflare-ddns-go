@@ -43,6 +43,22 @@ docker compose up -d
 docker compose logs -f
 ```
 
+### ARM
+
+On an ARM machine, such as a Raspberry Pi, the commands above build a native image. To pin the platform, for example when building on another machine, add the matching override:
+
+| File | Platform | Examples |
+|---|---|---|
+| `docker-compose.arm64.yml` | `linux/arm64` | Raspberry Pi 3, 4 or 5 on a 64-bit OS |
+| `docker-compose.armv7.yml` | `linux/arm/v7` | Raspberry Pi 2, 3 or 4 on a 32-bit OS |
+| `docker-compose.armv6.yml` | `linux/arm/v6` | Raspberry Pi Zero or 1 |
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.arm64.yml up -d
+```
+
+The Dockerfile cross-compiles, so building an ARM image on an x86 machine needs no emulation.
+
 ## How it works
 
 - Records are always written as DNS-only (not proxied), with the configured TTL.
@@ -75,7 +91,7 @@ golangci-lint run
 go build -o cloudflare-ddns
 ```
 
-CI runs the tests, golangci-lint (including `gofmt` and `govet`), govulncheck and a Docker build on every push to `master` and on pull requests.
+CI runs the tests, golangci-lint (including `gofmt` and `govet`), govulncheck and a Docker build for amd64, arm64, armv7 and armv6 on every push to `master` and on pull requests.
 
 ## License
 

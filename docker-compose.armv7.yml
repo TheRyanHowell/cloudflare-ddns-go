@@ -1,0 +1,5 @@
+# 32-bit ARMv7, e.g. Raspberry Pi 2, 3 or 4 on a 32-bit OS.
+# Use with: docker compose -f docker-compose.yml -f docker-compose.armv7.yml up -d
+services:
+  app:
+    platform: linux/arm/v7
