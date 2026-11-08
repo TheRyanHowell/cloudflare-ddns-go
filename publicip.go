@@ -152,22 +152,23 @@ func findProvider(name string) (ipProvider, bool) {
 
 // newPublicIPSource tries the named providers in order. Each name must be in
 // ipProviders.
-func newPublicIPSource(logger *slog.Logger, client *http.Client, names []string) *fallbackLookup {
+func newPublicIPSource(logger *slog.Logger, client *http.Client, names []string, interval time.Duration) *fallbackLookup {
 	sources := make([]ipSource, 0, len(names))
 	for _, name := range names {
 		p, _ := findProvider(name)
 		sources = append(sources, &publicIPLookup{client: client, ipProvider: p})
 	}
-	return newFallbackLookup(logger, sources...)
+	return newFallbackLookup(logger, interval, sources...)
 }
 
 // fallbackLookup tries each source in order and returns the first address. A
 // source that fails is skipped until its cooldown ends. It is not safe for
 // concurrent use.
 type fallbackLookup struct {
-	logger  *slog.Logger
-	sources []*trackedSource
-	now     func() time.Time
+	logger   *slog.Logger
+	sources  []*trackedSource
+	now      func() time.Time
+	interval time.Duration
 }
 
 // trackedSource remembers a source's consecutive failures and when it may be
@@ -178,28 +179,27 @@ type trackedSource struct {
 	until    time.Time
 }
 
-const (
-	// baseCooldown is how long a source is skipped after one failure. It
-	// doubles with each consecutive failure, up to maxCooldown.
-	baseCooldown = time.Minute
-	maxCooldown  = time.Hour
-)
+// maxCooldown caps a source's cooldown, unless the sync interval is longer.
+const maxCooldown = time.Hour
 
 // errProvidersCoolingDown is returned, without making any requests, when every
 // source is cooling down.
 var errProvidersCoolingDown = errors.New("every public IP provider is cooling down after failures")
 
-// cooldown returns how long to skip a source after failures consecutive failures.
-func cooldown(failures int) time.Duration {
-	d := baseCooldown
-	for i := 1; i < failures && d < maxCooldown; i++ {
+// cooldown returns how long to skip a source after failures consecutive
+// failures: the next 1, 2, 4… syncs, up to maxCooldown or one interval. Half an
+// interval of slack keeps the following sync inside the cooldown.
+func cooldown(failures int, interval time.Duration) time.Duration {
+	limit := max(maxCooldown, interval)
+	d := interval
+	for i := 1; i < failures && d < limit; i++ {
 		d *= 2
 	}
-	return min(d, maxCooldown)
+	return min(d, limit) + interval/2
 }
 
-func newFallbackLookup(logger *slog.Logger, sources ...ipSource) *fallbackLookup {
-	f := &fallbackLookup{logger: logger, now: time.Now}
+func newFallbackLookup(logger *slog.Logger, interval time.Duration, sources ...ipSource) *fallbackLookup {
+	f := &fallbackLookup{logger: logger, now: time.Now, interval: interval}
 	for _, src := range sources {
 		f.sources = append(f.sources, &trackedSource{src: src})
 	}
@@ -212,9 +212,9 @@ func (ts *trackedSource) reset() {
 }
 
 // recordFailure starts a cooldown, honouring a longer Retry-After, and returns it.
-func (ts *trackedSource) recordFailure(now time.Time, err error) time.Duration {
+func (ts *trackedSource) recordFailure(now time.Time, interval time.Duration, err error) time.Duration {
 	ts.failures++
-	wait := max(cooldown(ts.failures), retryAfter(err))
+	wait := max(cooldown(ts.failures, interval), retryAfter(err))
 	ts.until = now.Add(wait)
 	return wait
 }
@@ -275,7 +275,7 @@ func (f *fallbackLookup) settle(sf sourceFailure, now time.Time, charge bool) {
 		f.logger.Warn("public IP source failed", "error", sf.err)
 		return
 	}
-	wait := sf.ts.recordFailure(now, sf.err)
+	wait := sf.ts.recordFailure(now, f.interval, sf.err)
 	f.logger.Warn("public IP source failed", "error", sf.err, "retry_in", wait)
 }
 

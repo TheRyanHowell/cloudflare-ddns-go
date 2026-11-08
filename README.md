@@ -48,7 +48,7 @@ docker compose logs -f
 - Records are always written as DNS-only (not proxied), with the configured TTL.
 - Only IPv4 is supported. The IP lookup is forced over IPv4.
 - If an IP provider fails, the failure is logged and the next provider in `IP_PROVIDERS` is tried.
-- A provider that fails is skipped for a cooldown: 1 minute after one failure, doubling with each consecutive failure up to 1 hour. One success resets it. A single failure therefore does not drop a provider from the next sync at the default interval. A `Retry-After` header (for example on `429 Too Many Requests`) is honoured, up to 24 hours.
+- A provider that fails is skipped for the next sync, then the next 2, 4… syncs with each consecutive failure, up to about an hour (or one interval, if longer). One success resets it. A `Retry-After` header (for example on `429 Too Many Requests`) is honoured, up to 24 hours.
 - If every provider fails in the same sync, those that could not be reached at all (DNS, connection, TLS or timeout errors) start no cooldown, since the local network is the likely cause, and are tried again at the next sync. A provider that answered with an error, such as `403` or `429`, still goes on cooldown.
 - If every provider is cooling down, the sync makes no requests and is retried at the next interval.
 - Temporary failures, such as network errors or Cloudflare `5xx` responses, are logged and retried on the next cycle.

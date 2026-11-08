@@ -124,7 +124,7 @@ func (s *stubSource) Current(context.Context) (string, error) {
 
 // newTestFallback returns a fallbackLookup whose clock reads *now.
 func newTestFallback(now *time.Time, sources ...ipSource) *fallbackLookup {
-	f := newFallbackLookup(discardLogger(), sources...)
+	f := newFallbackLookup(discardLogger(), testInterval, sources...)
 	f.now = func() time.Time { return *now }
 	return f
 }
@@ -132,13 +132,16 @@ func newTestFallback(now *time.Time, sources ...ipSource) *fallbackLookup {
 // errUnreachable is a transport failure: no response arrived.
 var errUnreachable = fmt.Errorf("get public IP: %w", &transportError{err: &url.Error{Op: "Get", URL: "https://example.test", Err: errFake}})
 
+// testInterval is the sync interval the fallback tests assume.
+const testInterval = 5 * time.Minute
+
 var testEpoch = time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
 
 func TestFallbackLookupUsesFirstSuccess(t *testing.T) {
 	primary := &stubSource{ip: "1.1.1.1"}
 	secondary := &stubSource{ip: "2.2.2.2"}
 
-	got, err := newFallbackLookup(discardLogger(), primary, secondary).Current(context.Background())
+	got, err := newFallbackLookup(discardLogger(), testInterval, primary, secondary).Current(context.Background())
 	if err != nil || got != "1.1.1.1" || secondary.calls != 0 {
 		t.Errorf("Current() = %q, %v, secondary calls %d; want primary only", got, err, secondary.calls)
 	}
@@ -150,7 +153,7 @@ func TestFallbackLookupFallsBackAndWarns(t *testing.T) {
 	primary := &stubSource{err: errors.New("primary down")}
 	secondary := &stubSource{ip: "2.2.2.2"}
 
-	got, err := newFallbackLookup(logger, primary, secondary).Current(context.Background())
+	got, err := newFallbackLookup(logger, testInterval, primary, secondary).Current(context.Background())
 	if err != nil || got != "2.2.2.2" {
 		t.Errorf("Current() = %q, %v; want 2.2.2.2", got, err)
 	}
@@ -165,7 +168,7 @@ func TestFallbackLookupAllFail(t *testing.T) {
 	errA, errB := errors.New("a down"), errors.New("b down")
 	sources := []ipSource{&stubSource{err: errA}, &stubSource{err: errB}}
 
-	_, err := newFallbackLookup(logger, sources...).Current(context.Background())
+	_, err := newFallbackLookup(logger, testInterval, sources...).Current(context.Background())
 	if !errors.Is(err, errA) || !errors.Is(err, errB) {
 		t.Errorf("err = %v, want both source errors", err)
 	}
@@ -182,7 +185,7 @@ func TestFallbackLookupStopsWhenCancelled(t *testing.T) {
 	secondary := &stubSource{ip: "2.2.2.2"}
 	sources := []ipSource{&stubSource{err: context.Canceled}, secondary}
 
-	_, err := newFallbackLookup(discardLogger(), sources...).Current(ctx)
+	_, err := newFallbackLookup(discardLogger(), testInterval, sources...).Current(ctx)
 	if err == nil || secondary.calls != 0 {
 		t.Errorf("err = %v, secondary calls %d; want error and no fallback", err, secondary.calls)
 	}
@@ -190,7 +193,7 @@ func TestFallbackLookupStopsWhenCancelled(t *testing.T) {
 
 func TestNewPublicIPSourceUsesProvidersInOrder(t *testing.T) {
 	var urls []string
-	for _, src := range newPublicIPSource(discardLogger(), http.DefaultClient, []string{"ipify", "cloudflare", "akamai"}).sources {
+	for _, src := range newPublicIPSource(discardLogger(), http.DefaultClient, []string{"ipify", "cloudflare", "akamai"}, testInterval).sources {
 		urls = append(urls, src.src.(*publicIPLookup).url)
 	}
 	want := []string{ipifyURL, cloudflareTraceURL, akamaiURL}
@@ -231,35 +234,34 @@ func TestIPProvidersParseTheirFormat(t *testing.T) {
 }
 
 func TestCooldown(t *testing.T) {
-	tests := map[int]time.Duration{
-		1:    baseCooldown,
-		2:    2 * baseCooldown,
-		3:    4 * baseCooldown,
-		7:    maxCooldown,
-		1000: maxCooldown,
+	half := testInterval / 2
+	tests := []struct {
+		failures int
+		interval time.Duration
+		want     time.Duration
+	}{
+		{1, testInterval, testInterval + half},
+		{2, testInterval, 2*testInterval + half},
+		{3, testInterval, 4*testInterval + half},
+		{1000, testInterval, maxCooldown + half},
+		{1, 24 * time.Hour, 36 * time.Hour},
+		{5, 24 * time.Hour, 36 * time.Hour},
 	}
-	for failures, want := range tests {
-		if got := cooldown(failures); got != want {
-			t.Errorf("cooldown(%d) = %v, want %v", failures, got, want)
+	for _, tt := range tests {
+		if got := cooldown(tt.failures, tt.interval); got != tt.want {
+			t.Errorf("cooldown(%d, %v) = %v, want %v", tt.failures, tt.interval, got, tt.want)
 		}
 	}
 }
 
-func TestFallbackLookupSkipsProviderInCooldown(t *testing.T) {
+func TestFallbackLookupSkipsSyncsAfterFailures(t *testing.T) {
 	now := testEpoch
 	primary := &stubSource{err: errFake}
 	f := newTestFallback(&now, primary, &stubSource{ip: "2.2.2.2"})
 
-	assertPrimaryCalls(t, f, &now, primary, []callStep{{0, 1}, {baseCooldown - time.Second, 1}, {baseCooldown, 2}})
-}
-
-func TestFallbackLookupBacksOffOnRepeatedFailure(t *testing.T) {
-	now := testEpoch
-	primary := &stubSource{err: errFake}
-	f := newTestFallback(&now, primary, &stubSource{ip: "2.2.2.2"})
-
-	// Failures at 0 and 1m give cooldowns of 1m then 2m, so 3m is the next try.
-	assertPrimaryCalls(t, f, &now, primary, []callStep{{0, 1}, {time.Minute, 2}, {3*time.Minute - time.Second, 2}, {3 * time.Minute, 3}})
+	// The first failure skips one sync, the second skips two.
+	i := testInterval
+	assertPrimaryCalls(t, f, &now, primary, []callStep{{0, 1}, {i, 1}, {2 * i, 2}, {3 * i, 2}, {4 * i, 2}, {5 * i, 3}})
 }
 
 func TestFallbackLookupSuccessResetsBackoff(t *testing.T) {
@@ -267,14 +269,15 @@ func TestFallbackLookupSuccessResetsBackoff(t *testing.T) {
 	primary := &stubSource{ip: "1.1.1.1", errs: []error{errFake, errFake, nil, errFake}}
 	f := newTestFallback(&now, primary, &stubSource{ip: "2.2.2.2"})
 
-	for _, at := range []time.Duration{0, time.Minute, 3 * time.Minute, 3 * time.Minute} {
+	i := testInterval
+	for _, at := range []time.Duration{0, 2 * i, 5 * i, 5 * i} {
 		now = testEpoch.Add(at)
 		if _, err := f.Current(context.Background()); err != nil {
 			t.Fatalf("at %v: %v", at, err)
 		}
 	}
-	// The failure after the success starts again at the base cooldown.
-	now = testEpoch.Add(3*time.Minute + baseCooldown)
+	// The failure after the success skips only one sync again.
+	now = testEpoch.Add(7 * i)
 	if _, err := f.Current(context.Background()); err != nil || primary.calls != 5 {
 		t.Errorf("err = %v, primary calls = %d, want 5", err, primary.calls)
 	}
@@ -338,10 +341,14 @@ func TestFallbackLookupOutageDoesNotEscalateCooldowns(t *testing.T) {
 	if got, err := f.Current(context.Background()); err != nil || got != "2.2.2.2" {
 		t.Fatalf("after outage: Current() = %q, %v; want 2.2.2.2", got, err)
 	}
-	// The primary was charged one failure, not four, so it returns after the base cooldown.
-	now = now.Add(baseCooldown)
+	// The primary was charged one failure, not four, so it skips one sync only.
+	now = now.Add(testInterval)
+	if got, err := f.Current(context.Background()); err != nil || got != "2.2.2.2" {
+		t.Errorf("Current() = %q, %v; want the primary still skipped", got, err)
+	}
+	now = now.Add(testInterval)
 	if got, err := f.Current(context.Background()); err != nil || got != "1.1.1.1" {
-		t.Errorf("Current() = %q, %v; want primary back after %v", got, err, baseCooldown)
+		t.Errorf("Current() = %q, %v; want the primary back", got, err)
 	}
 }
 
