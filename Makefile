@@ -25,7 +25,7 @@ IMAGE   := cloudflare-ddns
 BINARY  := cloudflare-ddns
 COMPOSE := DOCKER_DEFAULT_PLATFORM=$(PLATFORM) docker compose
 
-.PHONY: help build test lint vuln check image images run stop logs release clean platform
+.PHONY: help build test lint vuln check check-platforms image images run stop logs release clean platform
 
 help: ## List the targets
 	@grep -E '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -45,7 +45,12 @@ lint: ## Run golangci-lint
 vuln: ## Check for known vulnerabilities
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
-check: test lint vuln ## Run every check CI runs
+check: test lint vuln check-platforms ## Run every check CI runs
+
+check-platforms: ## Check .goreleaser.yaml builds every platform in PLATFORMS
+	@want="$$(echo $(PLATFORMS) | tr ' ' '\n' | sed -E 's#/v([0-9])$$#_\1#; s#/#_#g' | sort)"; \
+		have="$$(grep -oE 'linux_[a-z0-9_]+' .goreleaser.yaml | sort)"; \
+		[ "$$want" = "$$have" ] || { printf 'PLATFORMS:\n%s\n.goreleaser.yaml:\n%s\n' "$$want" "$$have"; exit 1; }
 
 image: platform ## Build the image for this machine's platform
 	docker buildx build --platform $(PLATFORM) --target final --load -t $(IMAGE) .
@@ -73,6 +78,6 @@ release: ## Tag a release locally: make release VERSION=v1.2.3 (does not push)
 	@echo "Tagged $(VERSION). Push it with: git push origin $(VERSION)"
 
 clean: ## Remove the built binary
-	rm -f $(BINARY)
+	rm -rf $(BINARY) dist
 
 comma := ,

@@ -12,3 +12,4 @@ LICENSE
 docker-compose*.yml
 Dockerfile
 docs
+.goreleaser.yaml

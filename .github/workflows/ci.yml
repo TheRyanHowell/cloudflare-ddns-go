@@ -50,6 +50,7 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: latest
+      - run: make check-platforms
 
   docker:
     runs-on: ubuntu-latest

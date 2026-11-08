@@ -169,6 +169,12 @@ func main() {
 
 `Sync` wraps errors that retrying cannot fix, such as a rejected token, with `ddns.ErrPermanent`. See [architecture](docs/architecture.md) for how the packages fit together.
 
+## Releases
+
+Releases follow [Semantic Versioning 2.0](https://semver.org/) and are tagged `vMAJOR.MINOR.PATCH`. Each [GitHub release](https://github.com/TheRyanHowell/cloudflare-ddns-go/releases) has prebuilt binaries for Linux (every platform listed under Usage), macOS, Windows and FreeBSD, with checksums.
+
+To cut a release, run `make release VERSION=v1.2.3`. It checks the version is valid semver and newer than the last tag, then creates the tag locally. Pushing the tag (`git push origin v1.2.3`) builds and publishes the release.
+
 ## Documentation
 
 - [IP providers](docs/ip-providers.md): the providers, their networks, rate limits and default order
