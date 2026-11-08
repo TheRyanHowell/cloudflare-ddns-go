@@ -31,13 +31,28 @@ type syncer struct {
 	health            *health
 	interval          time.Duration
 	startupRetryDelay time.Duration
+	exitDelay         time.Duration
 }
 
 // run syncs the record at startup and then every interval until ctx is
-// cancelled. Permanent failures (rejected credentials, missing or unusable
-// record) end it; transient ones are retried, at startup every
-// startupRetryDelay and afterwards on the next interval.
+// cancelled. Transient failures are retried, at startup every
+// startupRetryDelay and afterwards on the next interval. A permanent failure
+// (rejected credentials, missing or unusable record) ends it after exitDelay,
+// so a restarting container does not retry in a tight loop.
 func (s *syncer) run(ctx context.Context) error {
+	err := s.loop(ctx)
+	if err == nil {
+		return nil
+	}
+	s.logger.Error("permanent failure, exiting after a delay", "error", err, "exit_in", s.exitDelay)
+	select {
+	case <-ctx.Done():
+	case <-time.After(s.exitDelay):
+	}
+	return err
+}
+
+func (s *syncer) loop(ctx context.Context) error {
 	known, err := s.loadRecord(ctx)
 	if err != nil {
 		if ctx.Err() != nil {

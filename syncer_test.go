@@ -210,3 +210,29 @@ func TestRunLookupStatusErrorIsNotFatal(t *testing.T) {
 		t.Errorf("run() = %v, want nil", err)
 	}
 }
+
+func TestSyncerWaitsBeforeExitingOnPermanentFailure(t *testing.T) {
+	denied := &statusError{code: 403, status: "403 Forbidden"}
+	s := newTestSyncer(&fakeRecord{contentErrs: []error{denied}}, &fakeLookup{})
+	s.exitDelay = time.Hour
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- s.run(ctx) }()
+
+	select {
+	case err := <-done:
+		t.Fatalf("run returned %v at once; want it to wait before exiting", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, denied) {
+			t.Errorf("run() = %v, want %v", err, denied)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("run did not stop when cancelled during the wait")
+	}
+}

@@ -13,7 +13,10 @@ import (
 const (
 	// startupRetryDelay is the wait between attempts to read the record at startup.
 	startupRetryDelay = 30 * time.Second
-	requestTimeout    = 30 * time.Second
+	// permanentFailureExitDelay spaces out restarts after a permanent failure,
+	// such as a rejected token, so the container retries hourly.
+	permanentFailureExitDelay = time.Hour
+	requestTimeout            = 30 * time.Second
 
 	healthcheckCommand = "healthcheck"
 )
@@ -41,6 +44,7 @@ func run(ctx context.Context, logger *slog.Logger, args []string, getenv func(st
 		health:            state,
 		interval:          cfg.interval,
 		startupRetryDelay: startupRetryDelay,
+		exitDelay:         permanentFailureExitDelay,
 	}
 
 	srv := newHealthServer(addr, state.handler(healthStaleAfter(cfg.interval, len(cfg.providers))))
