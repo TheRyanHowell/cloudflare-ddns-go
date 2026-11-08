@@ -1,1 +1,3 @@
 .env
+.git
+/cloudflare-ddns-go
