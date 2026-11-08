@@ -302,3 +302,11 @@ func TestZeroDelaysMeanNoWait(t *testing.T) {
 		t.Errorf("delays = %v, %v; want zero kept", s.startupRetryDelay, s.exitDelay)
 	}
 }
+
+func TestSyncMarksPermanentReadFailures(t *testing.T) {
+	revoked := &fetch.StatusError{Code: 403, Status: "403 Forbidden"}
+	s := newTestSyncer(&fakeRecord{contentErrs: []error{revoked}}, &fakeLookup{ips: []string{"1.1.1.1"}})
+	if _, _, err := s.Sync(context.Background()); !errors.Is(err, ErrPermanent) || !errors.Is(err, revoked) {
+		t.Errorf("Sync() err = %v, want ErrPermanent wrapping the 403", err)
+	}
+}

@@ -208,10 +208,14 @@ func (s *Syncer) loadRecord(ctx context.Context) (string, error) {
 }
 
 // Sync reads the record and updates it when the public IP differs. It returns
-// the public IP and whether the record was changed.
+// the public IP and whether the record was changed. Errors that retrying
+// cannot fix are wrapped with ErrPermanent.
 func (s *Syncer) Sync(ctx context.Context) (ip string, changed bool, err error) {
 	known, err := s.record.Content(ctx)
 	if err != nil {
+		if s.isPermanent(err) {
+			err = fmt.Errorf("%w: %w", ErrPermanent, err)
+		}
 		return "", false, err
 	}
 	if ip, err = s.syncFrom(ctx, known); err != nil {
