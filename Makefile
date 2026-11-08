@@ -11,6 +11,7 @@ ARCH_i686        := linux/386
 ARCH_aarch64     := linux/arm64
 ARCH_arm64       := linux/arm64
 ARCH_armv7l      := linux/arm/v7
+ARCH_armv8l      := linux/arm/v7
 ARCH_armv6l      := linux/arm/v6
 ARCH_armv5tel    := linux/arm/v5
 ARCH_armv5tejl   := linux/arm/v5
@@ -19,19 +20,24 @@ ARCH_ppc64le     := linux/ppc64le
 ARCH_s390x       := linux/s390x
 ARCH_mips64      := linux/mips64le
 ARCH_loongarch64 := linux/loong64
-PLATFORM ?= $(ARCH_$(shell uname -m))
+HOST_ARCH := $(shell uname -m)
+PLATFORM  ?= $(ARCH_$(HOST_ARCH))
+VERSION_STAMP := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 IMAGE   := cloudflare-ddns
 BINARY  := cloudflare-ddns
-COMPOSE := DOCKER_DEFAULT_PLATFORM=$(PLATFORM) docker compose
+COMPOSE := DOCKER_DEFAULT_PLATFORM=$(PLATFORM) VERSION=$(VERSION_STAMP) docker compose
 
-.PHONY: help build test lint vuln check check-platforms image images run stop logs release clean platform
+.PHONY: help build test lint vuln check check-platforms image images run stop logs release clean platform require-platform
 
 help: ## List the targets
-	@grep -E '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
+	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
 
-platform: ## Print the detected Docker platform
-	@$(if $(PLATFORM),echo $(PLATFORM),$(error unsupported architecture "$(shell uname -m)"; set PLATFORM to one of: $(PLATFORMS)))
+platform: require-platform ## Print the detected Docker platform
+	@echo $(PLATFORM)
+
+require-platform:
+	@$(if $(PLATFORM),:,$(error unsupported architecture "$(HOST_ARCH)"; set PLATFORM to one of: $(PLATFORMS)))
 
 build: ## Build the binary for this machine
 	go build -trimpath -o $(BINARY) ./cmd/cloudflare-ddns
@@ -49,16 +55,16 @@ check: test lint vuln check-platforms ## Run every check CI runs
 
 check-platforms: ## Check .goreleaser.yaml builds every platform in PLATFORMS
 	@want="$$(echo $(PLATFORMS) | tr ' ' '\n' | sed -E 's#/v([0-9])$$#_\1#; s#/#_#g' | sort)"; \
-		have="$$(grep -oE 'linux_[a-z0-9_]+' .goreleaser.yaml | sort)"; \
+		have="$$(sed -n 's/^ *- \(linux_[a-z0-9_]*\)$$/\1/p' .goreleaser.yaml | sort)"; \
 		[ "$$want" = "$$have" ] || { printf 'PLATFORMS:\n%s\n.goreleaser.yaml:\n%s\n' "$$want" "$$have"; exit 1; }
 
-image: platform ## Build the image for this machine's platform
-	docker buildx build --platform $(PLATFORM) --target final --load -t $(IMAGE) .
+image: require-platform ## Build the image for this machine's platform
+	docker buildx build --platform $(PLATFORM) --build-arg VERSION=$(VERSION_STAMP) --target final --load -t $(IMAGE) .
 
 images: ## Build the image for every supported platform
-	docker buildx build --platform $(subst $(eval ) ,$(comma),$(PLATFORMS)) --target final .
+	docker buildx build --platform $(subst $(eval ) ,$(comma),$(PLATFORMS)) --build-arg VERSION=$(VERSION_STAMP) --target final .
 
-run: platform ## Build and start the daemon with Docker Compose
+run: require-platform ## Build and start the daemon with Docker Compose
 	$(COMPOSE) up -d --build
 
 stop: ## Stop the daemon
@@ -69,11 +75,11 @@ logs: ## Follow the daemon's logs
 
 release: ## Tag a release locally: make release VERSION=v1.2.3 (does not push)
 	@echo "$(VERSION)" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$$' \
-		|| { echo "VERSION must be semver with a v prefix, such as v1.2.3 or v1.3.0-rc.1"; exit 1; }
-	@latest=$$(git tag --list 'v*' --sort=-version:refname | head -1); \
-		if [ -n "$$latest" ] && [ "$$(printf '%s\n%s\n' "$$latest" "$(VERSION)" | sort -V | tail -1)" != "$(VERSION)" -o "$$latest" = "$(VERSION)" ]; then \
-			echo "$(VERSION) must be newer than $$latest"; exit 1; fi
-	@test -z "$$(git status --porcelain)" || { echo "commit or stash changes first"; exit 1; }
+		|| { echo "VERSION must be semver with a v prefix, such as v1.2.3 or v1.3.0-rc.1" >&2; exit 1; }
+	@latest=$$(git tag --list 'v*' | $(SEMVER_SORT) | tail -1); \
+		if [ -n "$$latest" ] && [ "$$(printf '%s\n%s\n' "$$latest" "$(VERSION)" | $(SEMVER_SORT) | tail -1)" != "$(VERSION)" -o "$$latest" = "$(VERSION)" ]; then \
+			echo "$(VERSION) must be newer than $$latest" >&2; exit 1; fi
+	@test -z "$$(git status --porcelain)" || { echo "commit or stash changes first" >&2; exit 1; }
 	git tag -a $(VERSION) -m "$(VERSION)"
 	@echo "Tagged $(VERSION). Push it with: git push origin $(VERSION)"
 
@@ -81,3 +87,5 @@ clean: ## Remove the built binary
 	rm -rf $(BINARY) dist
 
 comma := ,
+# Sorts semver tags, ranking a pre-release such as v1.3.0-rc.1 before v1.3.0.
+SEMVER_SORT := sed 's/-/~/' | sort -V | sed 's/~/-/'

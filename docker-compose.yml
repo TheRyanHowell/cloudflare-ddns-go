@@ -4,6 +4,8 @@ services:
       dockerfile: Dockerfile
       context: .
       target: final
+      args:
+        VERSION: ${VERSION:-dev}
     env_file:
       - .env
     restart: always

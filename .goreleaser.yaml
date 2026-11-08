@@ -10,7 +10,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -X main.version={{ .Version }}
+      - -s -w -X main.version={{ .Tag }}
     # The linux targets must match PLATFORMS in the Makefile (make check-platforms).
     targets:
       - linux_amd64

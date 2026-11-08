@@ -13,3 +13,5 @@ docker-compose*.yml
 Dockerfile
 docs
 .goreleaser.yaml
+dist
+Makefile
