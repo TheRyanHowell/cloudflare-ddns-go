@@ -63,7 +63,9 @@ func addFlags(cmd *cobra.Command, names ...string) {
 func overlay(base func(string) string, flags *pflag.FlagSet) func(string) string {
 	set := map[string]string{}
 	flags.Visit(func(f *pflag.Flag) {
-		if s, ok := settingFor(f.Name); ok {
+		// An empty value, such as an unset shell variable, leaves the
+		// environment in charge.
+		if s, ok := settingFor(f.Name); ok && f.Value.String() != "" {
 			set[s.env] = f.Value.String()
 		}
 	})
