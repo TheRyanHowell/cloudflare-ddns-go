@@ -133,12 +133,17 @@ func TestFallbackLookupFallsBackAndWarns(t *testing.T) {
 }
 
 func TestFallbackLookupAllFail(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
 	errA, errB := errors.New("a down"), errors.New("b down")
 	sources := []ipSource{&stubSource{err: errA}, &stubSource{err: errB}}
 
-	_, err := (&fallbackLookup{logger: discardLogger(), sources: sources}).Current(context.Background())
+	_, err := (&fallbackLookup{logger: logger, sources: sources}).Current(context.Background())
 	if !errors.Is(err, errA) || !errors.Is(err, errB) {
 		t.Errorf("err = %v, want both source errors", err)
+	}
+	if strings.Contains(logs.String(), "b down") {
+		t.Errorf("logs %q repeat the last failure, which the caller logs", logs.String())
 	}
 }
 

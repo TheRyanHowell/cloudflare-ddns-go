@@ -91,7 +91,7 @@ type fallbackLookup struct {
 // covered by a later source, or every error joined if all sources fail.
 func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 	var errs []error
-	for _, src := range f.sources {
+	for i, src := range f.sources {
 		ip, err := src.Current(ctx)
 		if err == nil {
 			return ip, nil
@@ -99,7 +99,9 @@ func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 		if ctx.Err() != nil {
 			return "", err
 		}
-		f.logger.Warn("public IP source failed", "error", err)
+		if i < len(f.sources)-1 {
+			f.logger.Warn("public IP source failed", "error", err)
+		}
 		errs = append(errs, err)
 	}
 	return "", errors.Join(errs...)

@@ -22,6 +22,8 @@ const (
 	defaultSyncInterval = 5 * time.Minute
 	// minSyncInterval keeps the daemon from hammering the IP lookup services.
 	minSyncInterval = 30 * time.Second
+	// maxSyncInterval keeps a stuck daemon detectable by the health check.
+	maxSyncInterval = 24 * time.Hour
 
 	// defaultRecordTTL is the record TTL in seconds unless CLOUDFLARE_RECORD_TTL is set.
 	defaultRecordTTL = 300
@@ -80,8 +82,8 @@ func syncInterval(getenv func(string) string) (time.Duration, error) {
 		return defaultSyncInterval, nil
 	}
 	d, err := time.ParseDuration(v)
-	if err != nil || d < minSyncInterval {
-		return 0, fmt.Errorf("SYNC_INTERVAL %q must be a duration of at least %s", v, minSyncInterval)
+	if err != nil || d < minSyncInterval || d > maxSyncInterval {
+		return 0, fmt.Errorf("SYNC_INTERVAL %q must be a duration between %s and %s", v, minSyncInterval, maxSyncInterval)
 	}
 	return d, nil
 }

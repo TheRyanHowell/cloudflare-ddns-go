@@ -16,6 +16,9 @@ const (
 	requestTimeout    = 30 * time.Second
 
 	healthcheckCommand = "healthcheck"
+
+	// maxSyncDuration bounds one sync: two IP lookups and a record update.
+	maxSyncDuration = 3 * requestTimeout
 )
 
 // run runs the daemon, or the health probe when args select it.
@@ -47,10 +50,10 @@ func run(ctx context.Context, logger *slog.Logger, args []string, getenv func(st
 	return runAll(ctx, srv, s)
 }
 
-// healthStaleAfter is two and a half sync intervals: a missed sync or two does
-// not flap the check, but a stuck daemon is still reported.
+// healthStaleAfter allows two and a half sync intervals plus one slow sync, so
+// a missed sync or two does not flap the check but a stuck daemon is reported.
 func healthStaleAfter(interval time.Duration) time.Duration {
-	return interval * 5 / 2
+	return interval*5/2 + maxSyncDuration
 }
 
 // runAll runs the health server and the syncer until either stops or ctx is

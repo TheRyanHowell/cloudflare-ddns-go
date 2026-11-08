@@ -24,7 +24,7 @@ cp .env.example .env
 | `CLOUDFLARE_ZONE_ID` | Yes | Zone ID, shown on the zone's Overview page in the Cloudflare dashboard |
 | `CLOUDFLARE_RECORD_ID` | Yes | ID of the `A` record to update |
 | `CLOUDFLARE_RECORD_NAME` | Yes | Full record name, e.g. `home.example.com` |
-| `SYNC_INTERVAL` | No | How often to check the public IP, as a Go duration such as `10m`. Minimum `30s` (default `5m`) |
+| `SYNC_INTERVAL` | No | How often to check the public IP, as a Go duration such as `10m`. Between `30s` and `24h` (default `5m`) |
 | `CLOUDFLARE_RECORD_TTL` | No | Record TTL in seconds: `1` for automatic, or `30` to `86400`. Cloudflare only accepts values below `60` on Enterprise plans (default `300`) |
 | `HEALTH_ADDR` | No | Listen address for the health endpoint (default `127.0.0.1:8080`) |
 
@@ -52,7 +52,7 @@ docker compose logs -f
 
 ## Health check
 
-The daemon serves `GET /healthz` on `HEALTH_ADDR`. It returns `200` while the last successful sync is less than two and a half sync intervals old (12.5 minutes by default), and `503` otherwise.
+The daemon serves `GET /healthz` on `HEALTH_ADDR`. It returns `200` while the last successful sync is less than two and a half sync intervals plus 90 seconds old (14 minutes by default), and `503` otherwise. The extra 90 seconds covers one slow sync: two IP lookups and a record update.
 
 The Compose healthcheck runs `/cloudflare-ddns healthcheck`, which probes that endpoint from inside the container.
 

@@ -89,3 +89,18 @@ func TestRunAllStopsBothOnSyncerError(t *testing.T) {
 		t.Errorf("err = %v, want %v", err, denied)
 	}
 }
+
+func TestHealthStaleAfter(t *testing.T) {
+	tests := map[time.Duration]time.Duration{
+		30 * time.Second: 75*time.Second + maxSyncDuration,
+		5 * time.Minute:  12*time.Minute + 30*time.Second + maxSyncDuration,
+	}
+	for interval, want := range tests {
+		if got := healthStaleAfter(interval); got != want {
+			t.Errorf("healthStaleAfter(%v) = %v, want %v", interval, got, want)
+		}
+	}
+	if maxSyncDuration < 3*requestTimeout {
+		t.Errorf("maxSyncDuration %v is below two lookups and an update (%v)", maxSyncDuration, 3*requestTimeout)
+	}
+}

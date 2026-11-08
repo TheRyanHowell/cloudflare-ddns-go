@@ -75,6 +75,8 @@ func TestLoadConfigTimings(t *testing.T) {
 		{name: "max ttl", ttl: "86400", wantInterval: defaultSyncInterval, wantTTL: 86400},
 		{name: "interval not a duration", interval: "5", wantErr: "SYNC_INTERVAL"},
 		{name: "interval too short", interval: "29s", wantErr: "SYNC_INTERVAL"},
+		{name: "interval maximum", interval: "24h", wantInterval: 24 * time.Hour, wantTTL: defaultRecordTTL},
+		{name: "interval too long", interval: "24h1s", wantErr: "SYNC_INTERVAL"},
 		{name: "ttl not a number", ttl: "5m", wantErr: "CLOUDFLARE_RECORD_TTL"},
 		{name: "ttl zero", ttl: "0", wantErr: "CLOUDFLARE_RECORD_TTL"},
 		{name: "ttl below minimum", ttl: "29", wantErr: "CLOUDFLARE_RECORD_TTL"},
