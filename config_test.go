@@ -113,7 +113,8 @@ func TestLoadConfigIPProviders(t *testing.T) {
 		{name: "swapped", primary: "amazon", fallback: "cloudflare", wantPrimary: "amazon", wantFallback: "cloudflare"},
 		{name: "unknown primary", primary: "example", wantErr: "IP_PROVIDER"},
 		{name: "unknown fallback", fallback: "example", wantErr: "IP_FALLBACK_PROVIDER"},
-		{name: "fallback same as primary", primary: "amazon", wantErr: "IP_FALLBACK_PROVIDER"},
+		{name: "amazon primary falls back to cloudflare", primary: "amazon", wantPrimary: "amazon", wantFallback: "cloudflare"},
+		{name: "fallback same as primary", primary: "ipify", fallback: "ipify", wantErr: "IP_FALLBACK_PROVIDER"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

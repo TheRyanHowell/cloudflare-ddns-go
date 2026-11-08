@@ -27,7 +27,7 @@ cp .env.example .env
 | `SYNC_INTERVAL` | No | How often to check the public IP, as a Go duration such as `10m`. Between `30s` and `24h` (default `5m`) |
 | `CLOUDFLARE_RECORD_TTL` | No | Record TTL in seconds: `1` for automatic, or `30` to `86400`. Cloudflare only accepts values below `60` on Enterprise plans (default `300`) |
 | `IP_PROVIDER` | No | Public IP provider to ask first (default `cloudflare`). See [IP providers](#ip-providers) |
-| `IP_FALLBACK_PROVIDER` | No | Provider to ask when the first fails. Must differ from `IP_PROVIDER` (default `amazon`) |
+| `IP_FALLBACK_PROVIDER` | No | Provider to ask when the first fails. Must differ from `IP_PROVIDER` (default `amazon`, or `cloudflare` when `IP_PROVIDER` is `amazon`) |
 | `HEALTH_ADDR` | No | Listen address for the health endpoint (default `127.0.0.1:8080`) |
 
 To find the record ID, list the zone's records:

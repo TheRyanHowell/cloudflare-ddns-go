@@ -44,6 +44,14 @@ const (
 	defaultIPFallbackProvider = "amazon"
 )
 
+// defaultFallbackFor returns the default fallback for primary, never primary itself.
+func defaultFallbackFor(primary string) string {
+	if primary == defaultIPFallbackProvider {
+		return defaultIPProvider
+	}
+	return defaultIPFallbackProvider
+}
+
 // defaultHealthAddr is where the health endpoint listens unless HEALTH_ADDR is set.
 const defaultHealthAddr = "127.0.0.1:8080"
 
@@ -85,7 +93,7 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if cfg.ipProvider, err = ipProviderName(getenv, "IP_PROVIDER", defaultIPProvider); err != nil {
 		return config{}, err
 	}
-	if cfg.ipFallbackProvider, err = ipProviderName(getenv, "IP_FALLBACK_PROVIDER", defaultIPFallbackProvider); err != nil {
+	if cfg.ipFallbackProvider, err = ipProviderName(getenv, "IP_FALLBACK_PROVIDER", defaultFallbackFor(cfg.ipProvider)); err != nil {
 		return config{}, err
 	}
 	if cfg.ipFallbackProvider == cfg.ipProvider {
