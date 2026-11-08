@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -32,8 +33,12 @@ const (
 	opendnsMyIPName = "myip.opendns.com."
 	// dnsMessageType is the media type of a DNS-over-HTTPS response.
 	dnsMessageType = "application/dns-message"
-	akamaiURL      = "https://whatismyip.akamai.com/"
-	ipinfoURL      = "https://ipinfo.io/ip"
+	// ripeURL's sourceapp parameter identifies the client, as RIPEstat asks.
+	ripeURL    = "https://stat.ripe.net/data/whats-my-ip/data.json?sourceapp=cloudflare-ddns-go"
+	hetznerURL = "https://ip.hetzner.com/"
+	mullvadURL = "https://am.i.mullvad.net/json"
+	akamaiURL  = "https://whatismyip.akamai.com/"
+	ipinfoURL  = "https://ipinfo.io/ip"
 	// traceIPKey prefixes the client address line in a Cloudflare trace.
 	traceIPKey = "ip="
 	// maxQuotedBodyChars caps how much of an unexpected body is quoted in errors.
@@ -110,6 +115,9 @@ var ipProviders = []namedProvider{
 	{"amazon", ipProvider{url: amazonCheckIPURL, extract: strings.TrimSpace}},
 	{"akamai", ipProvider{url: akamaiURL, extract: strings.TrimSpace}},
 	{"opendns", ipProvider{url: opendnsDoHURL, extract: dohIPv4, accept: dnsMessageType}},
+	{"ripe", ipProvider{url: ripeURL, extract: jsonIP("data", "ip")}},
+	{"hetzner", ipProvider{url: hetznerURL, extract: strings.TrimSpace}},
+	{"mullvad", ipProvider{url: mullvadURL, extract: jsonIP("ip")}},
 	{"ipinfo", ipProvider{url: ipinfoURL, extract: strings.TrimSpace}},
 	{"ipify", ipProvider{url: ipifyURL, extract: strings.TrimSpace}},
 	{"icanhazip", ipProvider{url: icanhazipURL, extract: strings.TrimSpace}},
@@ -297,4 +305,24 @@ func dohIPv4(body string) string {
 		}
 	}
 	return ""
+}
+
+// jsonIP returns an extractor that reads the string at path in a JSON object,
+// or "" when it is missing or not a string.
+func jsonIP(path ...string) func(string) string {
+	return func(body string) string {
+		var v any
+		if err := json.Unmarshal([]byte(body), &v); err != nil {
+			return ""
+		}
+		for _, key := range path {
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return ""
+			}
+			v = obj[key]
+		}
+		ip, _ := v.(string)
+		return ip
+	}
 }

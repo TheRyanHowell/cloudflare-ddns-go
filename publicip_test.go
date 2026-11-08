@@ -207,6 +207,9 @@ func TestIPProvidersParseTheirFormat(t *testing.T) {
 		"akamai":     "9.8.7.6",
 		"ipinfo":     "9.8.7.6",
 		"opendns":    dohResponse(t, dnsmessage.RCodeSuccess, "myip.opendns.com.", [4]byte{9, 8, 7, 6}),
+		"ripe":       `{"status":"ok","data":{"ip":"9.8.7.6"}}`,
+		"hetzner":    "9.8.7.6\n",
+		"mullvad":    `{"ip":"9.8.7.6","mullvad_exit_ip":false}`,
 	}
 	if len(bodies) != len(ipProviders) {
 		t.Fatalf("test covers %d providers, want all %d", len(bodies), len(ipProviders))
@@ -516,5 +519,25 @@ func TestIsTransportErrorOnRealLookups(t *testing.T) {
 	forbidden := &publicIPLookup{client: srv.Client(), ipProvider: ipProvider{url: srv.URL, extract: strings.TrimSpace}}
 	if _, err := forbidden.Current(context.Background()); err == nil || isTransportError(err) {
 		t.Errorf("403 response: isTransportError(%v) = true, want false", err)
+	}
+}
+
+func TestJSONIP(t *testing.T) {
+	tests := []struct {
+		path []string
+		body string
+		want string
+	}{
+		{[]string{"ip"}, `{"ip":"9.8.7.6"}`, "9.8.7.6"},
+		{[]string{"data", "ip"}, `{"data":{"ip":"9.8.7.6"}}`, "9.8.7.6"},
+		{[]string{"data", "ip"}, `{"data":{"addr":"9.8.7.6"}}`, ""},
+		{[]string{"data", "ip"}, `{"data":"9.8.7.6"}`, ""},
+		{[]string{"ip"}, `{"ip":42}`, ""},
+		{[]string{"ip"}, `not json`, ""},
+	}
+	for _, tt := range tests {
+		if got := jsonIP(tt.path...)(tt.body); got != tt.want {
+			t.Errorf("jsonIP(%q)(%s) = %q, want %q", tt.path, tt.body, got, tt.want)
+		}
 	}
 }
