@@ -2,14 +2,33 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+", "v[0-9]+.[0-9]+.[0-9]+-*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  goreleaser:
+  check:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - run: go test -race ./...
+      - run: make check-platforms
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+
+  goreleaser:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
         with:
