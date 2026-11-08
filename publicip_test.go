@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,16 +17,20 @@ import (
 func TestPublicIPLookupCurrent(t *testing.T) {
 	tests := []struct {
 		name    string
+		extract func(string) string
 		body    string
 		status  int
 		want    string
 		wantErr bool
 	}{
-		{name: "ok", body: "9.8.7.6\n", status: http.StatusOK, want: "9.8.7.6"},
-		{name: "ipv4 mapped", body: "::ffff:1.2.3.4", status: http.StatusOK, want: "1.2.3.4"},
-		{name: "ipv6", body: "2001:db8::1", status: http.StatusOK, wantErr: true},
-		{name: "garbage", body: "hello", status: http.StatusOK, wantErr: true},
-		{name: "status", status: http.StatusInternalServerError, wantErr: true},
+		{name: "ok", extract: plainTextIP, body: "9.8.7.6\n", status: http.StatusOK, want: "9.8.7.6"},
+		{name: "ipv4 mapped", extract: plainTextIP, body: "::ffff:1.2.3.4", status: http.StatusOK, want: "1.2.3.4"},
+		{name: "ipv6", extract: plainTextIP, body: "2001:db8::1", status: http.StatusOK, wantErr: true},
+		{name: "garbage", extract: plainTextIP, body: "hello", status: http.StatusOK, wantErr: true},
+		{name: "status", extract: plainTextIP, status: http.StatusInternalServerError, wantErr: true},
+		{name: "trace", extract: traceIP, body: "fl=1\nh=1.1.1.1\nip=9.8.7.6\nts=1\n", status: http.StatusOK, want: "9.8.7.6"},
+		{name: "trace ipv6", extract: traceIP, body: "ip=2001:db8::1\n", status: http.StatusOK, wantErr: true},
+		{name: "trace without ip", extract: traceIP, body: "fl=1\nh=1.1.1.1\n", status: http.StatusOK, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -32,7 +40,7 @@ func TestPublicIPLookupCurrent(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			got, err := (&publicIPLookup{client: srv.Client(), url: srv.URL}).Current(context.Background())
+			got, err := (&publicIPLookup{client: srv.Client(), url: srv.URL, extract: tt.extract}).Current(context.Background())
 			if (err != nil) != tt.wantErr || got != tt.want {
 				t.Errorf("Current() = %q, %v; want %q, wantErr %v", got, err, tt.want, tt.wantErr)
 			}
@@ -42,7 +50,7 @@ func TestPublicIPLookupCurrent(t *testing.T) {
 
 func TestPublicIPLookupRequestErrors(t *testing.T) {
 	for _, url := range []string{"http://127.0.0.1:1", "http://bad host"} {
-		if _, err := (&publicIPLookup{client: http.DefaultClient, url: url}).Current(context.Background()); err == nil {
+		if _, err := (&publicIPLookup{client: http.DefaultClient, url: url, extract: plainTextIP}).Current(context.Background()); err == nil {
 			t.Errorf("url %q: expected error", url)
 		}
 	}
@@ -54,8 +62,8 @@ func TestPublicIPLookupTruncatesBodyInError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := (&publicIPLookup{client: srv.Client(), url: srv.URL}).Current(context.Background())
-	if err == nil || len(err.Error()) > 200 {
+	_, err := (&publicIPLookup{client: srv.Client(), url: srv.URL, extract: plainTextIP}).Current(context.Background())
+	if err == nil || len(err.Error()) > 200+len(srv.URL) {
 		t.Errorf("err = %v, want short error", err)
 	}
 }
@@ -66,8 +74,105 @@ func TestNewIPv4ClientDialsIPv4(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got, err := (&publicIPLookup{client: newIPv4Client(time.Second), url: srv.URL}).Current(context.Background())
+	got, err := (&publicIPLookup{client: newIPv4Client(time.Second), url: srv.URL, extract: plainTextIP}).Current(context.Background())
 	if err != nil || got != "7.7.7.7" {
 		t.Errorf("Current() = %q, %v", got, err)
+	}
+}
+
+func TestTraceIP(t *testing.T) {
+	tests := map[string]string{
+		"ip=1.2.3.4":                 "1.2.3.4",
+		"fl=1\nip= 1.2.3.4 \nts=2\n": "1.2.3.4",
+		"fl=1\r\nip=1.2.3.4\r\n":     "1.2.3.4",
+		"fl=1\nvip=5.6.7.8\n":        "",
+		"":                           "",
+	}
+	for body, want := range tests {
+		if got := traceIP(body); got != want {
+			t.Errorf("traceIP(%q) = %q, want %q", body, got, want)
+		}
+	}
+}
+
+func TestPublicIPLookupErrorNamesSource(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, "hello")
+	}))
+	defer srv.Close()
+
+	_, err := (&publicIPLookup{client: srv.Client(), url: srv.URL, extract: plainTextIP}).Current(context.Background())
+	if err == nil || !strings.Contains(err.Error(), srv.URL) {
+		t.Errorf("err = %v, want containing %q", err, srv.URL)
+	}
+}
+
+// stubSource returns ip and err, counting calls.
+type stubSource struct {
+	ip    string
+	err   error
+	calls int
+}
+
+func (s *stubSource) Current(context.Context) (string, error) {
+	s.calls++
+	return s.ip, s.err
+}
+
+func TestFallbackLookupUsesFirstSuccess(t *testing.T) {
+	primary := &stubSource{ip: "1.1.1.1"}
+	secondary := &stubSource{ip: "2.2.2.2"}
+
+	got, err := (&fallbackLookup{logger: discardLogger(), sources: []ipSource{primary, secondary}}).Current(context.Background())
+	if err != nil || got != "1.1.1.1" || secondary.calls != 0 {
+		t.Errorf("Current() = %q, %v, secondary calls %d; want primary only", got, err, secondary.calls)
+	}
+}
+
+func TestFallbackLookupFallsBackAndWarns(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	primary := &stubSource{err: errors.New("primary down")}
+	secondary := &stubSource{ip: "2.2.2.2"}
+
+	got, err := (&fallbackLookup{logger: logger, sources: []ipSource{primary, secondary}}).Current(context.Background())
+	if err != nil || got != "2.2.2.2" {
+		t.Errorf("Current() = %q, %v; want 2.2.2.2", got, err)
+	}
+	if !strings.Contains(logs.String(), "primary down") {
+		t.Errorf("logs %q do not mention the primary failure", logs.String())
+	}
+}
+
+func TestFallbackLookupAllFail(t *testing.T) {
+	errA, errB := errors.New("a down"), errors.New("b down")
+	sources := []ipSource{&stubSource{err: errA}, &stubSource{err: errB}}
+
+	_, err := (&fallbackLookup{logger: discardLogger(), sources: sources}).Current(context.Background())
+	if !errors.Is(err, errA) || !errors.Is(err, errB) {
+		t.Errorf("err = %v, want both source errors", err)
+	}
+}
+
+func TestFallbackLookupStopsWhenCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	secondary := &stubSource{ip: "2.2.2.2"}
+	sources := []ipSource{&stubSource{err: context.Canceled}, secondary}
+
+	_, err := (&fallbackLookup{logger: discardLogger(), sources: sources}).Current(ctx)
+	if err == nil || secondary.calls != 0 {
+		t.Errorf("err = %v, secondary calls %d; want error and no fallback", err, secondary.calls)
+	}
+}
+
+func TestNewPublicIPSourcePrefersCloudflare(t *testing.T) {
+	var urls []string
+	for _, src := range newPublicIPSource(discardLogger(), http.DefaultClient).sources {
+		urls = append(urls, src.(*publicIPLookup).url)
+	}
+	want := []string{cloudflareTraceURL, icanhazipURL}
+	if !slices.Equal(urls, want) {
+		t.Errorf("source order = %v, want %v", urls, want)
 	}
 }

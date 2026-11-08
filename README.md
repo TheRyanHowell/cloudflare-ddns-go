@@ -2,7 +2,7 @@
 
 A small daemon that keeps a Cloudflare DNS `A` record pointed at your host's public IPv4 address.
 
-Every 5 minutes (configurable) it looks up the current public IP from [icanhazip.com](https://icanhazip.com/), and it updates the record only when the address has changed. It ships as a static binary in a `scratch` container image.
+Every 5 minutes (configurable) it looks up the current public IP from Cloudflare's [`1.1.1.1/cdn-cgi/trace`](https://1.1.1.1/cdn-cgi/trace), falling back to [icanhazip.com](https://icanhazip.com/) if that fails. It updates the record only when the address has changed. It ships as a static binary in a `scratch` container image.
 
 ## Requirements
 
@@ -46,6 +46,7 @@ docker compose logs -f
 
 - Records are always written as DNS-only (not proxied), with the configured TTL.
 - Only IPv4 is supported. The IP lookup is forced over IPv4.
+- If the Cloudflare lookup fails, the failure is logged and icanhazip.com is used for that sync.
 - Temporary failures, such as network errors or Cloudflare `5xx` responses, are logged and retried on the next cycle.
 - Permanent failures make the daemon exit with a non-zero status, so the problem shows up instead of being retried silently. These are a rejected token (`401`/`403`), a missing record (`404`), or a record that is not of type `A`. Compose's `restart: always` then restarts the container.
 
