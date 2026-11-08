@@ -197,3 +197,28 @@ func TestLoadConfigToken(t *testing.T) {
 		})
 	}
 }
+
+func FuzzIPProviderList(f *testing.F) {
+	for _, seed := range []string{"", " Akamai , ipinfo,cloudflare ", "amazon", "amazon,example", "amazon,AMAZON", "amazon,,akamai", " , "} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, value string) {
+		names, err := ipProviderList(func(string) string { return value })
+		if err != nil {
+			if !strings.Contains(err.Error(), "IP_PROVIDERS") {
+				t.Errorf("err = %v, want it to name IP_PROVIDERS", err)
+			}
+			return
+		}
+		if len(names) == 0 {
+			t.Fatalf("ipProviderList(%q) accepted an empty list", value)
+		}
+		seen := map[string]bool{}
+		for _, name := range names {
+			if seen[name] || !slices.Contains(defaultProviders, name) {
+				t.Errorf("ipProviderList(%q) = %q, want distinct known names", value, names)
+			}
+			seen[name] = true
+		}
+	})
+}

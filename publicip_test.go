@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -375,7 +376,7 @@ func TestCloudflareProviderURLs(t *testing.T) {
 }
 
 // dohResponse builds a DNS response answering name with an A record for ip.
-func dohResponse(t *testing.T, rcode dnsmessage.RCode, name string, ip [4]byte) string {
+func dohResponse(t testing.TB, rcode dnsmessage.RCode, name string, ip [4]byte) string {
 	t.Helper()
 	b := dnsmessage.NewBuilder(nil, dnsmessage.Header{Response: true, RCode: rcode})
 	n := dnsmessage.MustNewName(name)
@@ -722,4 +723,67 @@ func TestFallbackLookupLoneProviderHonoursRetryAfter(t *testing.T) {
 			t.Errorf("at %v: calls = %d, want %d", step.at, lone.calls, step.wantCalls)
 		}
 	}
+}
+
+func FuzzTraceIP(f *testing.F) {
+	for _, seed := range []string{"ip=1.2.3.4", "fl=1\nip= 1.2.3.4 \nts=2\n", "fl=1\r\nip=1.2.3.4\r\n", "fl=1\nvip=5.6.7.8\n", ""} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, body string) {
+		if got := traceIP(body); got != strings.TrimSpace(got) {
+			t.Errorf("traceIP(%q) = %q, want no surrounding space", body, got)
+		}
+	})
+}
+
+func FuzzJSONIP(f *testing.F) {
+	for _, seed := range []string{`{"ip":"9.8.7.6"}`, `{"data":{"ip":"9.8.7.6"}}`, `{"data":"9.8.7.6"}`, `{"ip":42}`, `not json`} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, body string) {
+		jsonIP("ip")(body)
+		jsonIP("data", "ip")(body)
+	})
+}
+
+func FuzzDoHIPv4(f *testing.F) {
+	f.Add(dohResponse(f, dnsmessage.RCodeSuccess, "myip.opendns.com.", [4]byte{9, 8, 7, 6}))
+	f.Add(dohResponse(f, dnsmessage.RCodeNameError, "myip.opendns.com.", [4]byte{9, 8, 7, 6}))
+	f.Add(dohResponse(f, dnsmessage.RCodeSuccess, "example.com.", [4]byte{9, 8, 7, 6}))
+	f.Add("9.8.7.6")
+	f.Add("")
+	f.Fuzz(func(t *testing.T, body string) {
+		got := dohIPv4(body)
+		if got == "" {
+			return
+		}
+		if addr, err := netip.ParseAddr(got); err != nil || !addr.Is4() {
+			t.Errorf("dohIPv4() = %q, want an IPv4 address or empty", got)
+		}
+	})
+}
+
+// bodyTransport answers every request with 200 and body.
+type bodyTransport struct{ body string }
+
+func (b *bodyTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Body: io.NopCloser(strings.NewReader(b.body)), Header: http.Header{}}, nil
+}
+
+func FuzzPublicIPLookupAcceptsOnlyIPv4(f *testing.F) {
+	for _, seed := range []string{"9.8.7.6\n", "::ffff:1.2.3.4", "2001:db8::1", "hello", "ip=9.8.7.6\n", "01.2.3.4", "1.2.3.4%eth0"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, body string) {
+		for _, p := range ipProviders {
+			l := &publicIPLookup{client: &http.Client{Transport: &bodyTransport{body: body}}, ipProvider: p.ipProvider}
+			got, err := l.Current(context.Background())
+			if err != nil {
+				continue
+			}
+			if addr, perr := netip.ParseAddr(got); perr != nil || !addr.Is4() || addr.String() != got {
+				t.Errorf("provider %s accepted %q from %q, want a dotted IPv4 address", p.name, got, body)
+			}
+		}
+	})
 }

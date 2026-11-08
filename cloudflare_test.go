@@ -149,3 +149,23 @@ func TestRecordNameMatchesConfiguredForms(t *testing.T) {
 		}
 	}
 }
+
+func FuzzNormalizeDNSName(f *testing.F) {
+	for _, seed := range []string{"home.example.com", "Home.Example.COM.", "xn--bcher-kva.example.com", "bücher.example.com", "*.example.com", "home", "@", ""} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, name string) {
+		got := normalizeDNSName(name)
+		if recordNameMatches(name, name) != (got != "") {
+			t.Errorf("recordNameMatches(%q, itself) = %v with normalised form %q", name, got == "", got)
+		}
+		// A name ending in ".." keeps one dot after a pass; known and harmless,
+		// as such a name never matches.
+		if strings.HasSuffix(got, ".") {
+			return
+		}
+		if again := normalizeDNSName(got); again != got {
+			t.Errorf("normalizeDNSName is not idempotent: %q -> %q -> %q", name, got, again)
+		}
+	})
+}

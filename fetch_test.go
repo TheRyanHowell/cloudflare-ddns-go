@@ -110,3 +110,15 @@ func TestFetchKeepsStatusWhenErrorBodyIsCutShort(t *testing.T) {
 		t.Errorf("err = %#v, want a statusError with retryAfter 1h and no transport marker", err)
 	}
 }
+
+func FuzzParseRetryAfter(f *testing.F) {
+	for _, seed := range []string{"", "120", " 30 ", "-5", "soon", "Sun, 08 Nov 2026 12:10:00 GMT", "Sun, 08 Nov 2026 11:00:00 GMT", "999999999", "99999999999999999999", "-99999999999999999999"} {
+		f.Add(seed)
+	}
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	f.Fuzz(func(t *testing.T, value string) {
+		if got := parseRetryAfter(value, now); got < 0 || got > maxRetryAfter {
+			t.Errorf("parseRetryAfter(%q) = %v, want within 0..%v", value, got, maxRetryAfter)
+		}
+	})
+}
