@@ -73,7 +73,7 @@ stop: ## Stop the daemon
 logs: ## Follow the daemon's logs
 	docker compose logs -f
 
-release: ## Tag a release locally: make release VERSION=v1.2.3 (does not push)
+release: ## Sign and tag a release locally: make release VERSION=v1.2.3 (does not push)
 	@test "$(origin VERSION)" = "command line" || { echo "pass the version on the command line: make release VERSION=v1.2.3" >&2; exit 1; }
 	@echo "$(VERSION)" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$$' \
 		|| { echo "VERSION must be semver with a v prefix, such as v1.2.3 or v1.3.0-rc.1" >&2; exit 1; }
@@ -81,7 +81,7 @@ release: ## Tag a release locally: make release VERSION=v1.2.3 (does not push)
 		if [ -n "$$latest" ] && [ "$$(printf '%s\n%s\n' "$$latest" "$(VERSION)" | $(SEMVER_SORT) | tail -1)" != "$(VERSION)" -o "$$latest" = "$(VERSION)" ]; then \
 			echo "$(VERSION) must be newer than $$latest" >&2; exit 1; fi
 	@test -z "$$(git status --porcelain)" || { echo "commit or stash changes first" >&2; exit 1; }
-	git tag -a $(VERSION) -m "$(VERSION)"
+	git tag -s $(VERSION) -m "$(VERSION)"
 	@echo "Tagged $(VERSION). Push it with: git push origin $(VERSION)"
 
 clean: ## Remove the built binary

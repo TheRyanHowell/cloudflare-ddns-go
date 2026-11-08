@@ -92,7 +92,7 @@ make images   # build the image for every platform (needs a buildx builder)
 
 Platforms are listed once, in `PLATFORMS` in the `Makefile`. CI runs the same checks and builds every platform on each push to `master` and on pull requests.
 
-Releases follow [Semantic Versioning 2.0](https://semver.org/). `make release VERSION=v1.2.3` checks the version and tags it locally; pushing the tag (`git push origin v1.2.3`) builds and publishes the release with binaries and checksums.
+Releases follow [Semantic Versioning 2.0](https://semver.org/). `make release VERSION=v1.2.3` checks the version and creates a signed tag locally (set up [git tag signing](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-tags) first); pushing the tag (`git push origin v1.2.3`) builds and publishes the release with binaries and checksums.
 
 ## License
 
