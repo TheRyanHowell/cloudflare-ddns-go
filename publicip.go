@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -74,7 +73,9 @@ func (l *publicIPLookup) Current(ctx context.Context) (string, error) {
 	if err != nil && l.dnsFallbackURL != "" && errors.As(err, &dnsErr) {
 		fallbackIP, fallbackErr := l.fetchIP(ctx, l.dnsFallbackURL)
 		if fallbackErr != nil {
-			return "", errors.Join(err, fallbackErr)
+			// Only the fallback's error is wrapped, so it alone decides how the
+			// failure is classified.
+			return "", fmt.Errorf("%v; fallback: %w", err, fallbackErr)
 		}
 		return fallbackIP, nil
 	}
@@ -222,14 +223,6 @@ func (ts *trackedSource) recordFailure(now time.Time, err error) time.Duration {
 	return wait
 }
 
-// honourRetryAfter skips the source for as long as its Retry-After asks,
-// without counting a failure.
-func (ts *trackedSource) honourRetryAfter(now time.Time, err error) {
-	if wait := retryAfter(err); wait > 0 && now.Add(wait).After(ts.until) {
-		ts.until = now.Add(wait)
-	}
-}
-
 // retryAfter returns the Retry-After delay carried by err, or 0.
 func retryAfter(err error) time.Duration {
 	var se *statusError
@@ -277,7 +270,6 @@ func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 	for i, sf := range failures {
 		errs[i] = sf.err
 		if isTransportError(sf.err) {
-			sf.ts.honourRetryAfter(now, sf.err)
 			f.logger.Warn("public IP source failed", "error", sf.err)
 			continue
 		}
@@ -285,13 +277,6 @@ func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 		f.logger.Warn("public IP source failed", "error", sf.err, "retry_in", wait)
 	}
 	return "", errors.Join(errs...)
-}
-
-// isTransportError reports whether err means no response arrived, such as a
-// DNS, connection, TLS or timeout failure.
-func isTransportError(err error) bool {
-	var ue *url.Error
-	return errors.As(err, &ue)
 }
 
 // nextRetry returns how long until the first source's cooldown ends.

@@ -130,7 +130,7 @@ func newTestFallback(now *time.Time, sources ...ipSource) *fallbackLookup {
 }
 
 // errUnreachable is a transport failure: no response arrived.
-var errUnreachable = fmt.Errorf("get public IP: %w", &url.Error{Op: "Get", URL: "https://example.test", Err: errFake})
+var errUnreachable = fmt.Errorf("get public IP: %w", &transportError{err: &url.Error{Op: "Get", URL: "https://example.test", Err: errFake}})
 
 var testEpoch = time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
 
@@ -521,6 +521,15 @@ func TestIsTransportErrorOnRealLookups(t *testing.T) {
 	if _, err := forbidden.Current(context.Background()); err == nil || isTransportError(err) {
 		t.Errorf("403 response: isTransportError(%v) = true, want false", err)
 	}
+	truncated := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		io.WriteString(w, "9.8.")
+	}))
+	defer truncated.Close()
+	cut := &publicIPLookup{client: truncated.Client(), ipProvider: ipProvider{url: truncated.URL, extract: strings.TrimSpace}}
+	if _, err := cut.Current(context.Background()); !isTransportError(err) {
+		t.Errorf("body cut short: isTransportError(%v) = false, want true", err)
+	}
 }
 
 func TestJSONIP(t *testing.T) {
@@ -568,7 +577,7 @@ func TestPublicIPLookupDNSFallback(t *testing.T) {
 	}{
 		{name: "dns failure uses fallback", primary: "http://dns-fails.test/", status: http.StatusOK, wantIP: "9.8.7.6", wantFetches: 1},
 		{name: "http error does not", primary: "http://reachable.test/", status: http.StatusForbidden, wantErr: true, wantFetches: 1},
-		{name: "fallback failure is reported", primary: "http://dns-fails.test/", status: http.StatusBadGateway, wantErr: true, wantFetches: 1},
+		{name: "fallback failure is reported", primary: "http://dns-fails.test/", status: http.StatusForbidden, wantErr: true, wantFetches: 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -584,6 +593,10 @@ func TestPublicIPLookupDNSFallback(t *testing.T) {
 			got, err := l.Current(context.Background())
 			if got != tt.wantIP || (err != nil) != tt.wantErr || fetches != tt.wantFetches {
 				t.Errorf("Current() = %q, %v with %d fetches; want %q, error %v, %d fetches", got, err, fetches, tt.wantIP, tt.wantErr, tt.wantFetches)
+			}
+			// A host that answered with an error is not unreachable, even after a DNS failure.
+			if err != nil && isTransportError(err) {
+				t.Errorf("isTransportError(%v) = true; the answering host should be charged", err)
 			}
 		})
 	}

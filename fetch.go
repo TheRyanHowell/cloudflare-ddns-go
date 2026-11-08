@@ -32,6 +32,21 @@ func (e *statusError) Error() string {
 	return "unexpected status " + e.status + ": " + e.body
 }
 
+// transportError marks a request that got no usable response: the request
+// failed, or the body could not be read in full.
+type transportError struct {
+	err error
+}
+
+func (e *transportError) Error() string { return e.err.Error() }
+func (e *transportError) Unwrap() error { return e.err }
+
+// isTransportError reports whether err means no usable response arrived.
+func isTransportError(err error) bool {
+	var te *transportError
+	return errors.As(err, &te)
+}
+
 // permanent reports whether retrying err cannot help: rejected credentials, a
 // missing record, or a record that is not usable.
 func permanent(err error) bool {
@@ -53,13 +68,13 @@ func permanent(err error) bool {
 func fetch(client *http.Client, req *http.Request) ([]byte, error) {
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, &transportError{err: err}
 	}
 	defer resp.Body.Close() //nolint:errcheck // nothing useful to do on failure
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
-		return nil, err
+		return nil, &transportError{err: err}
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, &statusError{
