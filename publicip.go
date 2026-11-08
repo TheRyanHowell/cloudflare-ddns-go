@@ -90,11 +90,10 @@ var ipProviders = map[string]ipProvider{
 	"icanhazip":  {url: icanhazipURL, extract: strings.TrimSpace},
 }
 
-// newPublicIPSource tries the named providers in order. The names must be
-// keys of ipProviders.
-func newPublicIPSource(logger *slog.Logger, client *http.Client, names ...string) *fallbackLookup {
-	sources := make([]ipSource, 0, len(names))
-	for _, name := range names {
+// newPublicIPSource tries primary, then fallback. Both must be keys of ipProviders.
+func newPublicIPSource(logger *slog.Logger, client *http.Client, primary, fallback string) *fallbackLookup {
+	sources := make([]ipSource, 0, 2)
+	for _, name := range []string{primary, fallback} {
 		p := ipProviders[name]
 		sources = append(sources, &publicIPLookup{client: client, url: p.url, extract: p.extract})
 	}
