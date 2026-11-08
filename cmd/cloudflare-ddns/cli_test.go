@@ -31,7 +31,7 @@ func TestHelp(t *testing.T) {
 		if !strings.Contains(out, "cloudflare-ddns [command]") {
 			t.Errorf("execute(%q) stdout = %q, want the usage line", args, out)
 		}
-		for _, name := range []string{"run", "healthcheck", "completion", "help"} {
+		for _, name := range []string{"run", "healthcheck", "version", "completion", "help"} {
 			if !strings.Contains(out, "\n  "+name+" ") {
 				t.Errorf("execute(%q) stdout does not list command %q:\n%s", args, name, out)
 			}

@@ -69,6 +69,7 @@ func (a app) newRootCmd() *cobra.Command {
 	root.AddCommand(
 		a.newCommand("run", "Keep the record in sync until stopped (the default command)", a.runDaemon),
 		a.newCommand(healthcheckCommand, "Probe the running daemon's health endpoint", a.runHealthcheck),
+		a.newCommand("version", "Print the version", a.runVersion),
 	)
 	return root
 }
