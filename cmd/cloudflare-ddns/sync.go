@@ -30,7 +30,7 @@ func (o *observedRecord) Content(ctx context.Context) (string, error) {
 // runSync reads the record, updates it if the public IP differs, reports which
 // and returns.
 func (a app) runSync(ctx context.Context, getenv func(string) string) error {
-	cfg, err := loadConfig(getenv)
+	cfg, err := loadConfig(withoutInterval(getenv))
 	if err != nil {
 		return err
 	}
@@ -51,4 +51,15 @@ func (a app) runSync(ctx context.Context, getenv func(string) string) error {
 	}
 	printf(a.stdout, "%s is already %s\n", cfg.recordName, ip)
 	return nil
+}
+
+// withoutInterval hides SYNC_INTERVAL, which only the daemon uses, so a bad
+// value shared with the daemon's environment does not stop a one-off sync.
+func withoutInterval(getenv func(string) string) func(string) string {
+	return func(key string) string {
+		if key == "SYNC_INTERVAL" {
+			return ""
+		}
+		return getenv(key)
+	}
 }

@@ -188,3 +188,11 @@ func TestSyncDoesNotStartTheHealthServer(t *testing.T) {
 		t.Errorf("something listened on the health address %s during the sync", addr)
 	}
 }
+
+func TestSyncIgnoresTheDaemonInterval(t *testing.T) {
+	env := syncEnv()
+	env["SYNC_INTERVAL"] = "bogus"
+	if code, _, stderr := runSync(t, newFakeCloud(publicIP), env); code != exitOK {
+		t.Errorf("exit %d, stderr %q; want 0, as sync does not use SYNC_INTERVAL", code, stderr)
+	}
+}
