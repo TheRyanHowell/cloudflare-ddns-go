@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -11,14 +12,21 @@ import (
 )
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	os.Exit(exitCode(os.Args[1:], os.Getenv, os.Stderr))
+}
+
+// exitCode runs the program until it finishes or is signalled, logging to
+// stderr, and returns the process exit code.
+func exitCode(args []string, getenv func(string) string, stderr io.Writer) int {
+	logger := slog.New(slog.NewTextHandler(stderr, nil))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	err := run(ctx, logger, os.Args[1:], os.Getenv)
+	err := run(ctx, logger, args, getenv)
 	stop()
 
 	if err != nil {
 		logger.Error("exiting", "error", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
