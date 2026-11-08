@@ -191,38 +191,67 @@ func newFallbackLookup(logger *slog.Logger, sources ...ipSource) *fallbackLookup
 // recordFailure starts a cooldown, honouring a longer Retry-After, and returns it.
 func (ts *trackedSource) recordFailure(now time.Time, err error) time.Duration {
 	ts.failures++
-	wait := cooldown(ts.failures)
-	var se *statusError
-	if errors.As(err, &se) {
-		wait = max(wait, se.retryAfter)
-	}
+	wait := max(cooldown(ts.failures), retryAfter(err))
 	ts.until = now.Add(wait)
 	return wait
 }
 
+// honourRetryAfter skips the source for as long as its Retry-After asks,
+// without counting a failure.
+func (ts *trackedSource) honourRetryAfter(now time.Time, err error) {
+	if wait := retryAfter(err); wait > 0 && now.Add(wait).After(ts.until) {
+		ts.until = now.Add(wait)
+	}
+}
+
+// retryAfter returns the Retry-After delay carried by err, or 0.
+func retryAfter(err error) time.Duration {
+	var se *statusError
+	if errors.As(err, &se) {
+		return se.retryAfter
+	}
+	return 0
+}
+
+// sourceFailure is a source and the error it returned during one lookup.
+type sourceFailure struct {
+	ts  *trackedSource
+	err error
+}
+
 // Current returns the first answer from a source that is not cooling down,
-// logging each failure, or every error joined if all the sources it tried failed.
+// logging each failure, or every error joined if all the sources it tried
+// failed. Failures start cooldowns only when another source succeeds: if
+// every source fails, the local network is the likely cause.
 func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 	now := f.now()
-	var errs []error
+	var failures []sourceFailure
 	for _, ts := range f.sources {
 		if now.Before(ts.until) {
 			continue
 		}
 		ip, err := ts.src.Current(ctx)
 		if err == nil {
+			for _, sf := range failures {
+				wait := sf.ts.recordFailure(now, sf.err)
+				f.logger.Warn("public IP source failed", "error", sf.err, "retry_in", wait)
+			}
 			ts.failures, ts.until = 0, time.Time{}
 			return ip, nil
 		}
 		if ctx.Err() != nil {
 			return "", err
 		}
-		wait := ts.recordFailure(now, err)
-		f.logger.Warn("public IP source failed", "error", err, "retry_in", wait)
-		errs = append(errs, err)
+		failures = append(failures, sourceFailure{ts: ts, err: err})
 	}
-	if len(errs) == 0 {
+	if len(failures) == 0 {
 		return "", fmt.Errorf("%w; next retry in %s", errProvidersCoolingDown, f.nextRetry(now).Round(time.Second))
+	}
+	errs := make([]error, len(failures))
+	for i, sf := range failures {
+		sf.ts.honourRetryAfter(now, sf.err)
+		f.logger.Warn("public IP source failed", "error", sf.err)
+		errs[i] = sf.err
 	}
 	return "", errors.Join(errs...)
 }

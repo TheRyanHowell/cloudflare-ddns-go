@@ -283,7 +283,8 @@ func TestFallbackLookupHonoursRetryAfter(t *testing.T) {
 
 func TestFallbackLookupAllCoolingDownMakesNoRequests(t *testing.T) {
 	now := testEpoch
-	a, b := &stubSource{err: errFake}, &stubSource{err: errFake}
+	limited := &statusError{code: http.StatusTooManyRequests, status: "429 Too Many Requests", retryAfter: time.Hour}
+	a, b := &stubSource{err: limited}, &stubSource{err: limited}
 	f := newTestFallback(&now, a, b)
 	if _, err := f.Current(context.Background()); err == nil {
 		t.Fatal("expected error")
@@ -293,6 +294,46 @@ func TestFallbackLookupAllCoolingDownMakesNoRequests(t *testing.T) {
 	_, err := f.Current(context.Background())
 	if !errors.Is(err, errProvidersCoolingDown) || a.calls != 1 || b.calls != 1 {
 		t.Errorf("err = %v, calls = %d, %d; want cooling-down error and no new requests", err, a.calls, b.calls)
+	}
+}
+
+func TestFallbackLookupAllFailingStartsNoCooldown(t *testing.T) {
+	// When every provider fails, the local network is the likely cause, so no
+	// provider is charged and all are tried again at the next sync.
+	now := testEpoch
+	a, b := &stubSource{err: errFake}, &stubSource{err: errFake}
+	f := newTestFallback(&now, a, b)
+	for range 3 {
+		if _, err := f.Current(context.Background()); err == nil {
+			t.Fatal("expected error")
+		}
+		now = now.Add(30 * time.Second)
+	}
+	if a.calls != 3 || b.calls != 3 {
+		t.Errorf("calls = %d, %d; want both tried at every sync", a.calls, b.calls)
+	}
+}
+
+func TestFallbackLookupOutageDoesNotEscalateCooldowns(t *testing.T) {
+	now := testEpoch
+	primary := &stubSource{ip: "1.1.1.1", errs: []error{errFake, errFake, errFake, errFake}}
+	secondary := &stubSource{ip: "2.2.2.2", errs: []error{errFake, errFake, errFake}}
+	f := newTestFallback(&now, primary, secondary)
+
+	// Three syncs of total outage, then the secondary recovers.
+	for range 3 {
+		if _, err := f.Current(context.Background()); err == nil {
+			t.Fatal("expected error during outage")
+		}
+		now = now.Add(5 * time.Minute)
+	}
+	if got, err := f.Current(context.Background()); err != nil || got != "2.2.2.2" {
+		t.Fatalf("after outage: Current() = %q, %v; want 2.2.2.2", got, err)
+	}
+	// The primary was charged one failure, not four, so it returns after the base cooldown.
+	now = now.Add(baseCooldown)
+	if got, err := f.Current(context.Background()); err != nil || got != "1.1.1.1" {
+		t.Errorf("Current() = %q, %v; want primary back after %v", got, err, baseCooldown)
 	}
 }
 
