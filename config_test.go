@@ -1,6 +1,8 @@
 package main
 
 import (
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -34,14 +36,14 @@ func TestLoadConfig(t *testing.T) {
 	want := config{
 		apiKey: "key", zoneID: "zone", recordID: "record", recordName: "home.example.com",
 		interval: defaultSyncInterval, ttl: defaultRecordTTL,
-		ipProvider: defaultIPProvider, ipFallbackProvider: defaultIPFallbackProvider,
+		providers: []string{"cloudflare", "amazon", "ipinfo", "akamai"},
 	}
-	if err != nil || got != want {
+	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("loadConfig() = %+v, %v; want %+v", got, err, want)
 	}
 
 	padded := func(k string) string { return " " + env[k] + "\n" }
-	if got, err := loadConfig(padded); err != nil || got != want {
+	if got, err := loadConfig(padded); err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("padded loadConfig() = %+v, %v; want %+v", got, err, want)
 	}
 
@@ -104,32 +106,32 @@ func TestLoadConfigTimings(t *testing.T) {
 
 func TestLoadConfigIPProviders(t *testing.T) {
 	tests := []struct {
-		name, primary, fallback   string
-		wantPrimary, wantFallback string
-		wantErr                   string
+		name    string
+		value   string
+		want    []string
+		wantErr string
 	}{
-		{name: "defaults", wantPrimary: "cloudflare", wantFallback: "amazon"},
-		{name: "custom", primary: " ipify ", fallback: "ICANHAZIP", wantPrimary: "ipify", wantFallback: "icanhazip"},
-		{name: "swapped", primary: "amazon", fallback: "cloudflare", wantPrimary: "amazon", wantFallback: "cloudflare"},
-		{name: "unknown primary", primary: "example", wantErr: "IP_PROVIDER"},
-		{name: "unknown fallback", fallback: "example", wantErr: "IP_FALLBACK_PROVIDER"},
-		{name: "amazon primary falls back to cloudflare", primary: "amazon", wantPrimary: "amazon", wantFallback: "cloudflare"},
-		{name: "fallback same as primary", primary: "ipify", fallback: "ipify", wantErr: "IP_FALLBACK_PROVIDER"},
+		{name: "default", want: []string{"cloudflare", "amazon", "ipinfo", "akamai"}},
+		{name: "ordered and normalised", value: " Akamai , ipinfo,cloudflare ", want: []string{"akamai", "ipinfo", "cloudflare"}},
+		{name: "single", value: "amazon", want: []string{"amazon"}},
+		{name: "unknown", value: "amazon,example", wantErr: `"example"`},
+		{name: "duplicate", value: "amazon,AMAZON", wantErr: "more than once"},
+		{name: "empty entry", value: "amazon,,akamai", wantErr: "empty"},
+		{name: "only separators", value: " , ", wantErr: "empty"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := baseEnv()
-			env["IP_PROVIDER"] = tt.primary
-			env["IP_FALLBACK_PROVIDER"] = tt.fallback
+			env["IP_PROVIDERS"] = tt.value
 			got, err := loadConfig(func(k string) string { return env[k] })
 			if tt.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("err = %v, want containing %q", err, tt.wantErr)
+				if err == nil || !strings.Contains(err.Error(), "IP_PROVIDERS") || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("err = %v, want IP_PROVIDERS error containing %q", err, tt.wantErr)
 				}
 				return
 			}
-			if err != nil || got.ipProvider != tt.wantPrimary || got.ipFallbackProvider != tt.wantFallback {
-				t.Errorf("loadConfig() = %q, %q, %v; want %q, %q", got.ipProvider, got.ipFallbackProvider, err, tt.wantPrimary, tt.wantFallback)
+			if err != nil || !slices.Equal(got.providers, tt.want) {
+				t.Errorf("loadConfig() providers = %q, %v; want %q", got.providers, err, tt.want)
 			}
 		})
 	}

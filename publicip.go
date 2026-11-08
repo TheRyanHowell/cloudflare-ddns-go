@@ -84,7 +84,7 @@ type ipProvider struct {
 	extract func(body string) string
 }
 
-// ipProviders are the services IP_PROVIDER and IP_FALLBACK_PROVIDER can name.
+// ipProviders are the services IP_PROVIDERS can name.
 var ipProviders = map[string]ipProvider{
 	"cloudflare": {url: cloudflareTraceURL, extract: traceIP},
 	"amazon":     {url: amazonCheckIPURL, extract: strings.TrimSpace},
@@ -94,10 +94,11 @@ var ipProviders = map[string]ipProvider{
 	"ipinfo":     {url: ipinfoURL, extract: strings.TrimSpace},
 }
 
-// newPublicIPSource tries primary, then fallback. Both must be keys of ipProviders.
-func newPublicIPSource(logger *slog.Logger, client *http.Client, primary, fallback string) *fallbackLookup {
-	sources := make([]ipSource, 0, 2)
-	for _, name := range []string{primary, fallback} {
+// newPublicIPSource tries the named providers in order. Each name must be a
+// key of ipProviders.
+func newPublicIPSource(logger *slog.Logger, client *http.Client, names []string) *fallbackLookup {
+	sources := make([]ipSource, 0, len(names))
+	for _, name := range names {
 		p := ipProviders[name]
 		sources = append(sources, &publicIPLookup{client: client, url: p.url, extract: p.extract})
 	}

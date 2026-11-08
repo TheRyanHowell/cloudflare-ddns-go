@@ -2,7 +2,7 @@
 
 A small daemon that keeps a Cloudflare DNS `A` record pointed at your host's public IPv4 address.
 
-Every 5 minutes (configurable) it looks up the current public IP, from Cloudflare by default and Amazon if that fails. It updates the record only when the address has changed. It ships as a static binary in a `scratch` container image.
+Every 5 minutes (configurable) it looks up the current public IP, trying a list of providers in order until one answers. It updates the record only when the address has changed. It ships as a static binary in a `scratch` container image.
 
 ## Requirements
 
@@ -26,8 +26,7 @@ cp .env.example .env
 | `CLOUDFLARE_RECORD_NAME` | Yes | Full record name, e.g. `home.example.com` |
 | `SYNC_INTERVAL` | No | How often to check the public IP, as a Go duration such as `10m`. Between `30s` and `24h` (default `5m`) |
 | `CLOUDFLARE_RECORD_TTL` | No | Record TTL in seconds: `1` for automatic, or `30` to `86400`. Cloudflare only accepts values below `60` on Enterprise plans (default `300`) |
-| `IP_PROVIDER` | No | Public IP provider to ask first (default `cloudflare`). See [IP providers](#ip-providers) |
-| `IP_FALLBACK_PROVIDER` | No | Provider to ask when the first fails. Must differ from `IP_PROVIDER` (default `amazon`, or `cloudflare` when `IP_PROVIDER` is `amazon`) |
+| `IP_PROVIDERS` | No | Comma-separated public IP providers, in the order to try them (default `cloudflare,amazon,ipinfo,akamai`). See [IP providers](#ip-providers) |
 | `HEALTH_ADDR` | No | Listen address for the health endpoint (default `127.0.0.1:8080`) |
 
 To find the record ID, list the zone's records:
@@ -48,22 +47,22 @@ docker compose logs -f
 
 - Records are always written as DNS-only (not proxied), with the configured TTL.
 - Only IPv4 is supported. The IP lookup is forced over IPv4.
-- If the first IP provider fails, the failure is logged and the fallback provider is used for that sync.
+- If an IP provider fails, the failure is logged and the next provider in `IP_PROVIDERS` is tried.
 - Temporary failures, such as network errors or Cloudflare `5xx` responses, are logged and retried on the next cycle.
 - Permanent failures make the daemon exit with a non-zero status, so the problem shows up instead of being retried silently. These are a rejected token (`401`/`403`), a missing record (`404`), or a record that is not of type `A`. Compose's `restart: always` then restarts the container.
 
 ## IP providers
 
-| Name | Endpoint | Notes |
-|---|---|---|
-| `cloudflare` | `https://1.1.1.1/cdn-cgi/trace` | Default. The IP literal needs no DNS lookup |
-| `amazon` | `https://checkip.amazonaws.com/` | Default fallback. Runs on AWS, so it does not depend on Cloudflare |
-| `ipify` | `https://api4.ipify.org/` | Served through Cloudflare |
-| `icanhazip` | `https://icanhazip.com/` | Run by Cloudflare |
-| `akamai` | `https://whatismyip.akamai.com/` | Runs on Akamai's network, independent of Cloudflare and AWS |
-| `ipinfo` | `https://ipinfo.io/ip` | Hosted on Google Cloud |
+| Name | Endpoint | Network | Notes |
+|---|---|---|---|
+| `cloudflare` | `https://1.1.1.1/cdn-cgi/trace` | Cloudflare | Default, first. The IP literal needs no DNS lookup |
+| `amazon` | `https://checkip.amazonaws.com/` | AWS | Default, second |
+| `ipinfo` | `https://ipinfo.io/ip` | Google Cloud | Default, third. Free tier is rate-limited |
+| `akamai` | `https://whatismyip.akamai.com/` | Akamai | Default, fourth |
+| `ipify` | `https://api4.ipify.org/` | Cloudflare | |
+| `icanhazip` | `https://icanhazip.com/` | Cloudflare | Owned and run by Cloudflare |
 
-For the fallback to survive a Cloudflare outage, pair a Cloudflare-backed provider with `amazon`, `akamai` or `ipinfo`.
+The default order spans four independent networks, so a single provider or network outage does not stop updates. Networks were identified from response headers and ownership in November 2026, and may change.
 
 ## Health check
 

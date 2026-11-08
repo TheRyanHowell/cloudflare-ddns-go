@@ -18,8 +18,7 @@ type config struct {
 	interval   time.Duration
 	ttl        int
 
-	ipProvider         string
-	ipFallbackProvider string
+	providers []string
 }
 
 const (
@@ -39,18 +38,8 @@ const (
 	maxRecordTTL = 86400
 )
 
-const (
-	defaultIPProvider         = "cloudflare"
-	defaultIPFallbackProvider = "amazon"
-)
-
-// defaultFallbackFor returns the default fallback for primary, never primary itself.
-func defaultFallbackFor(primary string) string {
-	if primary == defaultIPFallbackProvider {
-		return defaultIPProvider
-	}
-	return defaultIPFallbackProvider
-}
+// defaultIPProviders is the lookup order unless IP_PROVIDERS is set.
+const defaultIPProviders = "cloudflare,amazon,ipinfo,akamai"
 
 // defaultHealthAddr is where the health endpoint listens unless HEALTH_ADDR is set.
 const defaultHealthAddr = "127.0.0.1:8080"
@@ -90,28 +79,34 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if cfg.ttl, err = recordTTL(getenv); err != nil {
 		return config{}, err
 	}
-	if cfg.ipProvider, err = ipProviderName(getenv, "IP_PROVIDER", defaultIPProvider); err != nil {
+	if cfg.providers, err = ipProviderList(getenv); err != nil {
 		return config{}, err
-	}
-	if cfg.ipFallbackProvider, err = ipProviderName(getenv, "IP_FALLBACK_PROVIDER", defaultFallbackFor(cfg.ipProvider)); err != nil {
-		return config{}, err
-	}
-	if cfg.ipFallbackProvider == cfg.ipProvider {
-		return config{}, fmt.Errorf("IP_FALLBACK_PROVIDER %q must differ from IP_PROVIDER", cfg.ipFallbackProvider)
 	}
 	return cfg, nil
 }
 
-// ipProviderName reads key as a case-insensitive name from ipProviders.
-func ipProviderName(getenv func(string) string, key, def string) (string, error) {
-	name := strings.ToLower(strings.TrimSpace(getenv(key)))
-	if name == "" {
-		return def, nil
+// ipProviderList reads IP_PROVIDERS, a comma-separated, case-insensitive list
+// of distinct names from ipProviders in the order to try them.
+func ipProviderList(getenv func(string) string) ([]string, error) {
+	v := strings.TrimSpace(getenv("IP_PROVIDERS"))
+	if v == "" {
+		v = defaultIPProviders
 	}
-	if _, ok := ipProviders[name]; !ok {
-		return "", fmt.Errorf("%s %q must be one of %s", key, name, strings.Join(slices.Sorted(maps.Keys(ipProviders)), ", "))
+	var names []string
+	for raw := range strings.SplitSeq(v, ",") {
+		name := strings.ToLower(strings.TrimSpace(raw))
+		switch {
+		case name == "":
+			return nil, fmt.Errorf("IP_PROVIDERS %q has an empty entry", v)
+		case slices.Contains(names, name):
+			return nil, fmt.Errorf("IP_PROVIDERS %q names %q more than once", v, name)
+		}
+		if _, ok := ipProviders[name]; !ok {
+			return nil, fmt.Errorf("IP_PROVIDERS entry %q must be one of %s", name, strings.Join(slices.Sorted(maps.Keys(ipProviders)), ", "))
+		}
+		names = append(names, name)
 	}
-	return name, nil
+	return names, nil
 }
 
 // syncInterval reads SYNC_INTERVAL as a Go duration, such as "10m".

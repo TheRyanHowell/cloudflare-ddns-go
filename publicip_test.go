@@ -161,10 +161,10 @@ func TestFallbackLookupStopsWhenCancelled(t *testing.T) {
 
 func TestNewPublicIPSourceUsesProvidersInOrder(t *testing.T) {
 	var urls []string
-	for _, src := range newPublicIPSource(discardLogger(), http.DefaultClient, "ipify", "cloudflare").sources {
+	for _, src := range newPublicIPSource(discardLogger(), http.DefaultClient, []string{"ipify", "cloudflare", "akamai"}).sources {
 		urls = append(urls, src.(*publicIPLookup).url)
 	}
-	want := []string{ipifyURL, cloudflareTraceURL}
+	want := []string{ipifyURL, cloudflareTraceURL, akamaiURL}
 	if !slices.Equal(urls, want) {
 		t.Errorf("source order = %v, want %v", urls, want)
 	}
