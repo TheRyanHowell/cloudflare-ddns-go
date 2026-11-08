@@ -28,7 +28,7 @@ func TestRunErrors(t *testing.T) {
 		env  map[string]string
 		want string
 	}{
-		{"missing config", nil, map[string]string{}, "CLOUDFLARE_API_KEY is not set"},
+		{"missing config", nil, map[string]string{}, "CLOUDFLARE_API_TOKEN is not set"},
 		{"unknown command", []string{"bogus"}, fullEnv, `unknown command "bogus"`},
 		{"bad health address", []string{healthcheckCommand}, map[string]string{"HEALTH_ADDR": "nonsense"}, "invalid health address"},
 	}

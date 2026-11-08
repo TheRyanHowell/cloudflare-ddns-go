@@ -20,7 +20,8 @@ cp .env.example .env
 
 | Variable | Required | Description |
 |---|---|---|
-| `CLOUDFLARE_API_KEY` | Yes | Cloudflare API token (sent as a Bearer token) |
+| `CLOUDFLARE_API_TOKEN` | Yes, or the next | Cloudflare API token |
+| `CLOUDFLARE_API_TOKEN_FILE` | | Path to a file holding the token instead, such as a Docker secret. Set only one of the two. The file must be readable by UID 65532 |
 | `CLOUDFLARE_ZONE_ID` | Yes | Zone ID, shown on the zone's Overview page in the Cloudflare dashboard |
 | `CLOUDFLARE_RECORD_ID` | Yes | ID of the `A` record to update |
 | `CLOUDFLARE_RECORD_NAME` | Yes | The record's full name, e.g. `home.example.com`. Unicode names are accepted |
@@ -29,10 +30,24 @@ cp .env.example .env
 | `IP_PROVIDERS` | No | Comma-separated public IP providers, in the order to try them (default: all of them, see [IP providers](docs/ip-providers.md)) |
 | `HEALTH_ADDR` | No | Listen address for the health endpoint (default `127.0.0.1:8080`) |
 
+To keep the token out of `.env`, store it as a Docker secret and point `CLOUDFLARE_API_TOKEN_FILE` at it:
+
+```yaml
+services:
+  app:
+    environment:
+      CLOUDFLARE_API_TOKEN_FILE: /run/secrets/cloudflare_token
+    secrets:
+      - cloudflare_token
+secrets:
+  cloudflare_token:
+    file: ./cloudflare_token.txt
+```
+
 To find the record ID, list the zone's records:
 
 ```sh
-curl -s -H "Authorization: Bearer $CLOUDFLARE_API_KEY" \
+curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
   "https://api.cloudflare.com/client/v4/zones/$CLOUDFLARE_ZONE_ID/dns_records?type=A"
 ```
 

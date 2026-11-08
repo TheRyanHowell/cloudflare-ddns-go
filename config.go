@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -51,11 +53,14 @@ func healthAddr(getenv func(string) string) string {
 // loadConfig builds a config from getenv, failing on the first unset variable.
 func loadConfig(getenv func(string) string) (config, error) {
 	var cfg config
+	var err error
+	if cfg.apiKey, err = apiToken(getenv); err != nil {
+		return config{}, err
+	}
 	fields := []struct {
 		env string
 		dst *string
 	}{
-		{"CLOUDFLARE_API_KEY", &cfg.apiKey},
 		{"CLOUDFLARE_ZONE_ID", &cfg.zoneID},
 		{"CLOUDFLARE_RECORD_ID", &cfg.recordID},
 		{"CLOUDFLARE_RECORD_NAME", &cfg.recordName},
@@ -71,7 +76,6 @@ func loadConfig(getenv func(string) string) (config, error) {
 		return config{}, fmt.Errorf("CLOUDFLARE_RECORD_NAME %q must be the record's full name, such as home.example.com", cfg.recordName)
 	}
 
-	var err error
 	if cfg.interval, err = syncInterval(getenv); err != nil {
 		return config{}, err
 	}
@@ -138,4 +142,39 @@ func recordTTL(getenv func(string) string) (int, error) {
 // envValue returns the environment variable key with surrounding space removed.
 func envValue(getenv func(string) string, key string) string {
 	return strings.TrimSpace(getenv(key))
+}
+
+// tokenSources are the variables that can supply the API token. The last is
+// the legacy name, kept so existing configurations still work.
+var tokenSources = []string{"CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_TOKEN_FILE", "CLOUDFLARE_API_KEY"}
+
+// apiToken reads the API token from exactly one of tokenSources. The _FILE
+// variable names a file holding the token, such as a Docker secret.
+func apiToken(getenv func(string) string) (string, error) {
+	var set []string
+	for _, key := range tokenSources {
+		if envValue(getenv, key) != "" {
+			set = append(set, key)
+		}
+	}
+	switch len(set) {
+	case 0:
+		return "", errors.New("CLOUDFLARE_API_TOKEN is not set (or use CLOUDFLARE_API_TOKEN_FILE)")
+	case 1:
+	default:
+		return "", fmt.Errorf("set only one of %s", strings.Join(set, ", "))
+	}
+	if set[0] != "CLOUDFLARE_API_TOKEN_FILE" {
+		return envValue(getenv, set[0]), nil
+	}
+	path := envValue(getenv, set[0])
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read CLOUDFLARE_API_TOKEN_FILE: %w", err)
+	}
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", fmt.Errorf("CLOUDFLARE_API_TOKEN_FILE %q is empty", path)
+	}
+	return token, nil
 }

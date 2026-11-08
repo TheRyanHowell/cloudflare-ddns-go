@@ -11,6 +11,8 @@ The configuration was rejected. The log line is `msg=exiting` with one of these 
 | Error | Fix |
 |---|---|
 | `CLOUDFLARE_... is not set` | Fill in the variable in `.env` |
+| `set only one of CLOUDFLARE_API_TOKEN, ...` | The token is set in more than one way. Keep either `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_API_TOKEN_FILE` |
+| `read CLOUDFLARE_API_TOKEN_FILE: ...` or `... is empty` | The token file is missing, unreadable by UID 65532, or empty |
 | `CLOUDFLARE_RECORD_NAME "home" must be the record's full name` | Use the full name, such as `home.example.com`, not `home` or `@` |
 | `IP_PROVIDERS entry "..." must be one of ...` | Use names from [IP providers](ip-providers.md), separated by commas |
 | `IP_PROVIDERS "..." has an empty entry` or `names "..." more than once` | Remove the stray comma or the duplicate |
@@ -24,7 +26,7 @@ The daemon reached Cloudflare but cannot manage the record. It reports unhealthy
 
 | Error contains | Cause and fix |
 |---|---|
-| `unexpected status 401` or `403` | The token is wrong, expired or lacks permission. It needs **Zone → DNS → Edit** on this zone. For a user-owned token, check it with `curl -H "Authorization: Bearer $CLOUDFLARE_API_KEY" https://api.cloudflare.com/client/v4/user/tokens/verify` |
+| `unexpected status 401` or `403` | The token is wrong, expired or lacks permission. It needs **Zone → DNS → Edit** on this zone. For a user-owned token, check it with `curl -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/user/tokens/verify` |
 | `unexpected status 404` | `CLOUDFLARE_ZONE_ID` or `CLOUDFLARE_RECORD_ID` is wrong. List the zone's records with the `curl` command in the README and copy the `id` of the record you want |
 | `invalid DNS record: type "AAAA", want "A"` | The record ID points to a record that is not an `A` record |
 | `invalid DNS record: name "...", want "..."` | The record ID belongs to a different record than `CLOUDFLARE_RECORD_NAME`. Check both; the daemon refuses rather than renaming the wrong record |

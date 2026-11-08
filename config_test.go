@@ -1,6 +1,9 @@
 package main
 
 import (
+	"maps"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -24,7 +27,7 @@ var defaultProviders = []string{"cloudflare", "amazon", "akamai", "opendns", "ri
 // baseEnv returns the required variables, set.
 func baseEnv() map[string]string {
 	return map[string]string{
-		"CLOUDFLARE_API_KEY":     "key",
+		"CLOUDFLARE_API_TOKEN":   "key",
 		"CLOUDFLARE_ZONE_ID":     "zone",
 		"CLOUDFLARE_RECORD_ID":   "record",
 		"CLOUDFLARE_RECORD_NAME": "home.example.com",
@@ -59,7 +62,7 @@ func TestLoadConfig(t *testing.T) {
 				return env[k]
 			}
 			_, err := loadConfig(missing)
-			if err == nil || err.Error() != name+" is not set" {
+			if err == nil || !strings.HasPrefix(err.Error(), name+" is not set") {
 				t.Errorf("err = %v, want %q is not set", err, name)
 			}
 		})
@@ -147,5 +150,50 @@ func TestLoadConfigRequiresFullRecordName(t *testing.T) {
 		if _, err := loadConfig(envFunc(env)); err == nil || !strings.Contains(err.Error(), "full") {
 			t.Errorf("CLOUDFLARE_RECORD_NAME=%q: err = %v, want an error asking for the full name", name, err)
 		}
+	}
+}
+
+func TestLoadConfigToken(t *testing.T) {
+	dir := t.TempDir()
+	writeFile := func(name, content string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	tokenFile := writeFile("token", "  from-file\n")
+	emptyFile := writeFile("empty", " \n")
+
+	tests := []struct {
+		name    string
+		env     map[string]string
+		want    string
+		wantErr string
+	}{
+		{name: "token", env: map[string]string{"CLOUDFLARE_API_TOKEN": "tok"}, want: "tok"},
+		{name: "legacy key", env: map[string]string{"CLOUDFLARE_API_KEY": "old"}, want: "old"},
+		{name: "file", env: map[string]string{"CLOUDFLARE_API_TOKEN_FILE": tokenFile}, want: "from-file"},
+		{name: "empty file", env: map[string]string{"CLOUDFLARE_API_TOKEN_FILE": emptyFile}, wantErr: "empty"},
+		{name: "missing file", env: map[string]string{"CLOUDFLARE_API_TOKEN_FILE": filepath.Join(dir, "nope")}, wantErr: "nope"},
+		{name: "two sources", env: map[string]string{"CLOUDFLARE_API_TOKEN": "tok", "CLOUDFLARE_API_TOKEN_FILE": tokenFile}, wantErr: "only one"},
+		{name: "none", env: map[string]string{}, wantErr: "CLOUDFLARE_API_TOKEN is not set"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := baseEnv()
+			delete(env, "CLOUDFLARE_API_TOKEN")
+			maps.Copy(env, tt.env)
+			got, err := loadConfig(envFunc(env))
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("err = %v, want containing %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil || got.apiKey != tt.want {
+				t.Errorf("token = %q, %v; want %q", got.apiKey, err, tt.want)
+			}
+		})
 	}
 }
