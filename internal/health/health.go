@@ -1,4 +1,5 @@
-package main
+// Package health serves the /healthz endpoint and probes it.
+package health
 
 import (
 	"context"
@@ -16,24 +17,26 @@ const (
 	shutdownTimeout   = 5 * time.Second
 )
 
-// health tracks when the daemon last completed a sync successfully.
-type health struct {
+// State tracks when the daemon last completed a sync successfully.
+type State struct {
 	mu          sync.Mutex
 	lastSuccess time.Time
 	permanent   error
 	now         func() time.Time
 }
 
-func newHealth() *health { return &health{now: time.Now} }
+// New returns a State with no successful sync yet.
+func New() *State { return &State{now: time.Now} }
 
-func (h *health) MarkSuccess() {
+// MarkSuccess records a successful sync now.
+func (h *State) MarkSuccess() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.lastSuccess = h.now()
 }
 
 // age reports how long ago the last success was, and false if there was none.
-func (h *health) age() (time.Duration, bool) {
+func (h *State) age() (time.Duration, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.lastSuccess.IsZero() {
@@ -42,8 +45,8 @@ func (h *health) age() (time.Duration, bool) {
 	return h.now().Sub(h.lastSuccess), true
 }
 
-// handler reports 200 while the last success is newer than staleAfter.
-func (h *health) handler(staleAfter time.Duration) http.Handler {
+// Handler reports 200 while the last success is newer than staleAfter.
+func (h *State) Handler(staleAfter time.Duration) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		age, ok := h.age()
 		failure := h.failure()
@@ -60,14 +63,15 @@ func (h *health) handler(staleAfter time.Duration) http.Handler {
 	})
 }
 
-func newHealthServer(addr string, h http.Handler) *http.Server {
+// NewServer returns a server for h at GET /healthz on addr.
+func NewServer(addr string, h http.Handler) *http.Server {
 	mux := http.NewServeMux()
 	mux.Handle("GET "+healthPath, h)
 	return &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: readHeaderTimeout}
 }
 
-// serveHealth serves srv until ctx is cancelled, then shuts it down.
-func serveHealth(ctx context.Context, srv *http.Server) error {
+// Serve serves srv until ctx is cancelled, then shuts it down.
+func Serve(ctx context.Context, srv *http.Server) error {
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 
@@ -84,8 +88,8 @@ func serveHealth(ctx context.Context, srv *http.Server) error {
 	}
 }
 
-// healthURL turns a listen address into the URL the local probe should call.
-func healthURL(addr string) (string, error) {
+// URL turns a listen address into the URL the local probe should call.
+func URL(addr string) (string, error) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return "", fmt.Errorf("invalid health address %q: %w", addr, err)
@@ -109,14 +113,14 @@ func probeHost(host string) string {
 	return host
 }
 
-// newProbeClient returns a client that ignores proxy environment variables, so
+// NewProbeClient returns a client that ignores proxy environment variables, so
 // the probe always reaches the local endpoint.
-func newProbeClient(timeout time.Duration) *http.Client {
+func NewProbeClient(timeout time.Duration) *http.Client {
 	return &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: timeout}
 }
 
-// probeHealth returns nil when the health endpoint at url answers 200.
-func probeHealth(ctx context.Context, client *http.Client, url string) error {
+// Probe returns nil when the health endpoint at url answers 200.
+func Probe(ctx context.Context, client *http.Client, url string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -133,13 +137,13 @@ func probeHealth(ctx context.Context, client *http.Client, url string) error {
 }
 
 // MarkPermanentFailure makes the health check fail from now on.
-func (h *health) MarkPermanentFailure(err error) {
+func (h *State) MarkPermanentFailure(err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.permanent = err
 }
 
-func (h *health) failure() error {
+func (h *State) failure() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.permanent

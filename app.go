@@ -9,6 +9,7 @@ import (
 
 	"github.com/TheRyanHowell/cloudflare-ddns-go/cloudflare"
 	"github.com/TheRyanHowell/cloudflare-ddns-go/ddns"
+	"github.com/TheRyanHowell/cloudflare-ddns-go/internal/health"
 	"github.com/TheRyanHowell/cloudflare-ddns-go/publicip"
 	"golang.org/x/sync/errgroup"
 )
@@ -43,7 +44,7 @@ func run(ctx context.Context, logger *slog.Logger, args []string, getenv func(st
 	if err != nil {
 		return fmt.Errorf("public IP lookup: %w", err)
 	}
-	state := newHealth()
+	state := health.New()
 	s := ddns.New(newRecord(cfg), lookup,
 		ddns.WithLogger(logger),
 		ddns.WithHealthReporter(state),
@@ -53,7 +54,7 @@ func run(ctx context.Context, logger *slog.Logger, args []string, getenv func(st
 		ddns.WithExitDelay(permanentFailureExitDelay),
 	)
 
-	srv := newHealthServer(addr, state.handler(healthStaleAfter(cfg.interval, len(cfg.providers))))
+	srv := health.NewServer(addr, state.Handler(healthStaleAfter(cfg.interval, len(cfg.providers))))
 	return runAll(ctx, srv, s)
 }
 
@@ -80,7 +81,7 @@ func healthStaleAfter(interval time.Duration, providers int) time.Duration {
 func runAll(ctx context.Context, srv *http.Server, s *ddns.Syncer) error {
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
-		if err := serveHealth(ctx, srv); err != nil {
+		if err := health.Serve(ctx, srv); err != nil {
 			return fmt.Errorf("health server: %w", err)
 		}
 		return nil
@@ -90,9 +91,9 @@ func runAll(ctx context.Context, srv *http.Server, s *ddns.Syncer) error {
 }
 
 func runHealthcheck(ctx context.Context, addr string) error {
-	url, err := healthURL(addr)
+	url, err := health.URL(addr)
 	if err != nil {
 		return err
 	}
-	return probeHealth(ctx, newProbeClient(requestTimeout), url)
+	return health.Probe(ctx, health.NewProbeClient(requestTimeout), url)
 }

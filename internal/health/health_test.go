@@ -1,7 +1,8 @@
-package main
+package health
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,8 @@ import (
 	"testing"
 	"time"
 )
+
+var errFake = errors.New("fake failure")
 
 func TestHealthHandler(t *testing.T) {
 	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
@@ -26,12 +29,12 @@ func TestHealthHandler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := &health{now: func() time.Time { return now }}
+			h := &State{now: func() time.Time { return now }}
 			if tt.lastAge >= 0 {
 				h.lastSuccess = now.Add(-tt.lastAge)
 			}
 			rec := httptest.NewRecorder()
-			h.handler(staleAfter).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, healthPath, nil))
+			h.Handler(staleAfter).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, healthPath, nil))
 			if rec.Code != tt.wantStatus || !strings.Contains(rec.Body.String(), tt.wantBody) {
 				t.Errorf("got %d %q, want %d containing %q", rec.Code, rec.Body.String(), tt.wantStatus, tt.wantBody)
 			}
@@ -40,7 +43,7 @@ func TestHealthHandler(t *testing.T) {
 }
 
 func TestHealthMarkSuccess(t *testing.T) {
-	h := newHealth()
+	h := New()
 	if _, ok := h.age(); ok {
 		t.Fatal("age reported before any success")
 	}
@@ -51,7 +54,7 @@ func TestHealthMarkSuccess(t *testing.T) {
 }
 
 func TestHealthServerRoutes(t *testing.T) {
-	srv := httptest.NewServer(newHealthServer("", newHealth().handler(time.Minute)).Handler)
+	srv := httptest.NewServer(NewServer("", New().Handler(time.Minute)).Handler)
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + healthPath)
@@ -76,17 +79,17 @@ func TestHealthServerRoutes(t *testing.T) {
 func TestServeHealthShutsDownOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- serveHealth(ctx, newHealthServer("127.0.0.1:0", http.NotFoundHandler())) }()
+	go func() { done <- Serve(ctx, NewServer("127.0.0.1:0", http.NotFoundHandler())) }()
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Errorf("serveHealth() = %v", err)
+			t.Errorf("Serve() = %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("serveHealth did not return after cancel")
+		t.Fatal("Serve did not return after cancel")
 	}
 }
 
@@ -101,8 +104,8 @@ func TestServeHealthListenError(t *testing.T) {
 		}
 	})
 
-	srv := newHealthServer(ln.Addr().String(), http.NotFoundHandler())
-	if err := serveHealth(context.Background(), srv); err == nil {
+	srv := NewServer(ln.Addr().String(), http.NotFoundHandler())
+	if err := Serve(context.Background(), srv); err == nil {
 		t.Error("expected listen error for address in use")
 	}
 }
@@ -121,9 +124,9 @@ func TestHealthURL(t *testing.T) {
 		{"nonsense", "", true},
 	}
 	for _, tt := range tests {
-		got, err := healthURL(tt.addr)
+		got, err := URL(tt.addr)
 		if got != tt.want || (err != nil) != tt.wantErr {
-			t.Errorf("healthURL(%q) = %q, %v; want %q, wantErr %v", tt.addr, got, err, tt.want, tt.wantErr)
+			t.Errorf("URL(%q) = %q, %v; want %q, wantErr %v", tt.addr, got, err, tt.want, tt.wantErr)
 		}
 	}
 }
@@ -131,16 +134,16 @@ func TestHealthURL(t *testing.T) {
 func TestProbeHealth(t *testing.T) {
 	for _, status := range []int{http.StatusOK, http.StatusServiceUnavailable} {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status) }))
-		err := probeHealth(context.Background(), srv.Client(), srv.URL)
+		err := Probe(context.Background(), srv.Client(), srv.URL)
 		srv.Close()
 		if (err != nil) != (status != http.StatusOK) {
 			t.Errorf("status %d: err = %v", status, err)
 		}
 	}
-	if err := probeHealth(context.Background(), http.DefaultClient, "http://127.0.0.1:1"); err == nil {
+	if err := Probe(context.Background(), http.DefaultClient, "http://127.0.0.1:1"); err == nil {
 		t.Error("expected error for unreachable endpoint")
 	}
-	if err := probeHealth(context.Background(), http.DefaultClient, "http://bad host"); err == nil {
+	if err := Probe(context.Background(), http.DefaultClient, "http://bad host"); err == nil {
 		t.Error("expected error for invalid URL")
 	}
 }
@@ -150,21 +153,21 @@ func TestProbeClientIgnoresProxyEnv(t *testing.T) {
 	t.Setenv("http_proxy", "http://127.0.0.1:1")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 	defer srv.Close()
-	if err := probeHealth(context.Background(), newProbeClient(time.Second), srv.URL); err != nil {
+	if err := Probe(context.Background(), NewProbeClient(time.Second), srv.URL); err != nil {
 		t.Errorf("probe through client = %v", err)
 	}
-	if newProbeClient(time.Second).Transport.(*http.Transport).Proxy != nil {
+	if NewProbeClient(time.Second).Transport.(*http.Transport).Proxy != nil {
 		t.Error("probe client must not use a proxy")
 	}
 }
 
 func TestHealthReportsPermanentFailure(t *testing.T) {
-	h := newHealth()
+	h := New()
 	h.MarkSuccess()
 	h.MarkPermanentFailure(errFake)
 
 	rec := httptest.NewRecorder()
-	h.handler(time.Hour).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, healthPath, nil))
+	h.Handler(time.Hour).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, healthPath, nil))
 	body := rec.Body.String()
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(body, "permanent failure") || strings.Contains(body, "fake failure") {
 		t.Errorf("status %d body %q; want 503 despite a recent success, without the error detail", rec.Code, body)

@@ -13,6 +13,7 @@ import (
 	"github.com/TheRyanHowell/cloudflare-ddns-go/cloudflare"
 	"github.com/TheRyanHowell/cloudflare-ddns-go/ddns"
 	"github.com/TheRyanHowell/cloudflare-ddns-go/internal/fetch"
+	"github.com/TheRyanHowell/cloudflare-ddns-go/internal/health"
 )
 
 var errFake = errors.New("fake failure")
@@ -113,7 +114,7 @@ func TestRunStopsOnCancelledContext(t *testing.T) {
 func TestRunAllHealthServerFailureIsFatal(t *testing.T) {
 	ln := httptest.NewServer(http.NotFoundHandler())
 	defer ln.Close()
-	srv := newHealthServer(ln.Listener.Addr().String(), http.NotFoundHandler())
+	srv := health.NewServer(ln.Listener.Addr().String(), http.NotFoundHandler())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -127,7 +128,7 @@ func TestRunAllHealthServerFailureIsFatal(t *testing.T) {
 
 func TestRunAllStopsBothOnSyncerError(t *testing.T) {
 	denied := &fetch.StatusError{Code: 403, Status: "403 Forbidden"}
-	srv := newHealthServer("127.0.0.1:0", http.NotFoundHandler())
+	srv := health.NewServer("127.0.0.1:0", http.NotFoundHandler())
 	s := newTestSyncer(&fakeRecord{contentErrs: []error{denied}}, &fakeLookup{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
