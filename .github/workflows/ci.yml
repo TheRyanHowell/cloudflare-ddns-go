@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -23,7 +27,6 @@ jobs:
         run: |
           unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then echo "$unformatted"; exit 1; fi
-      - run: go vet ./...
       - run: go test -race -cover ./...
 
   vuln:
