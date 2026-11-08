@@ -17,31 +17,22 @@ import (
 )
 
 const (
-	// cloudflareTraceURL uses a hostname because the bare 1.1.1.1 host
-	// intermittently returns error 1034.
-	cloudflareTraceURL = "https://api.cloudflare.com/cdn-cgi/trace"
-	// cloudflareTraceIPURL is tried only when api.cloudflare.com cannot be resolved.
+	// The bare 1.1.1.1 host intermittently returns error 1034.
+	cloudflareTraceURL   = "https://api.cloudflare.com/cdn-cgi/trace"
 	cloudflareTraceIPURL = "https://1.1.1.1/cdn-cgi/trace"
 	amazonCheckIPURL     = "https://checkip.amazonaws.com/"
-	// ipifyURL is ipify's IPv4-only host.
-	ipifyURL = "https://api4.ipify.org/"
-	// icanhazipURL is run by Cloudflare.
-	icanhazipURL = "https://icanhazip.com/"
-	// opendnsDoHURL asks OpenDNS over DNS-over-HTTPS for the A record of
-	// myip.opendns.com, which it answers with the client's address. The dns
-	// parameter is a fixed RFC 8484 query: ID 0, recursion desired, A IN.
+	ipifyURL             = "https://api4.ipify.org/"
+	icanhazipURL         = "https://icanhazip.com/"
+	// The dns parameter is a fixed RFC 8484 query: ID 0, recursion desired, A IN myip.opendns.com.
 	opendnsDoHURL   = "https://doh.opendns.com/dns-query?dns=AAABAAABAAAAAAAABG15aXAHb3BlbmRucwNjb20AAAEAAQ"
 	opendnsMyIPName = "myip.opendns.com."
-	// dnsMessageType is the media type of a DNS-over-HTTPS response.
-	dnsMessageType = "application/dns-message"
-	// ripeURL's sourceapp parameter identifies the client, as RIPEstat asks.
-	ripeURL    = "https://stat.ripe.net/data/whats-my-ip/data.json?sourceapp=cloudflare-ddns-go"
-	hetznerURL = "https://ip.hetzner.com/"
-	mullvadURL = "https://am.i.mullvad.net/json"
-	akamaiURL  = "https://whatismyip.akamai.com/"
-	ipinfoURL  = "https://ipinfo.io/ip"
-	// traceIPKey prefixes the client address line in a Cloudflare trace.
-	traceIPKey = "ip="
+	dnsMessageType  = "application/dns-message"
+	ripeURL         = "https://stat.ripe.net/data/whats-my-ip/data.json?sourceapp=cloudflare-ddns-go"
+	hetznerURL      = "https://ip.hetzner.com/"
+	mullvadURL      = "https://am.i.mullvad.net/json"
+	akamaiURL       = "https://whatismyip.akamai.com/"
+	ipinfoURL       = "https://ipinfo.io/ip"
+	traceIPKey      = "ip="
 	// maxQuotedBodyChars caps how much of an unexpected body is quoted in errors.
 	maxQuotedBodyChars = 64
 	// dialTimeout bounds establishing a connection to the IP service.
