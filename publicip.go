@@ -252,8 +252,7 @@ func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 		ip, err := ts.src.Current(ctx)
 		if err == nil {
 			for _, sf := range failures {
-				wait := sf.ts.recordFailure(now, sf.err)
-				f.logger.Warn("public IP source failed", "error", sf.err, "retry_in", wait)
+				f.settle(sf, now, true)
 			}
 			ts.failures, ts.until = 0, time.Time{}
 			return ip, nil
@@ -269,14 +268,19 @@ func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 	errs := make([]error, len(failures))
 	for i, sf := range failures {
 		errs[i] = sf.err
-		if isTransportError(sf.err) {
-			f.logger.Warn("public IP source failed", "error", sf.err)
-			continue
-		}
-		wait := sf.ts.recordFailure(now, sf.err)
-		f.logger.Warn("public IP source failed", "error", sf.err, "retry_in", wait)
+		f.settle(sf, now, !isTransportError(sf.err))
 	}
 	return "", errors.Join(errs...)
+}
+
+// settle logs a failure and, when charge is true, starts its cooldown.
+func (f *fallbackLookup) settle(sf sourceFailure, now time.Time, charge bool) {
+	if !charge {
+		f.logger.Warn("public IP source failed", "error", sf.err)
+		return
+	}
+	wait := sf.ts.recordFailure(now, sf.err)
+	f.logger.Warn("public IP source failed", "error", sf.err, "retry_in", wait)
 }
 
 // nextRetry returns how long until the first source's cooldown ends.
