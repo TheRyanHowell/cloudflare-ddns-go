@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"github.com/TheRyanHowell/cloudflare-ddns-go/publicip"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +14,7 @@ import (
 	"github.com/TheRyanHowell/cloudflare-ddns-go/ddns"
 	"github.com/TheRyanHowell/cloudflare-ddns-go/internal/fetch"
 	"github.com/TheRyanHowell/cloudflare-ddns-go/internal/health"
+	"github.com/TheRyanHowell/cloudflare-ddns-go/publicip"
 )
 
 var errFake = errors.New("fake failure")

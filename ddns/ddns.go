@@ -48,11 +48,9 @@ type Syncer struct {
 	exitDelay         time.Duration
 }
 
-// Option configures New.
+// Option configures New. Options given a nil value, a non-positive interval or
+// a negative delay leave the default in place; a zero delay means no wait.
 type Option func(*Syncer)
-
-// Options given a nil value, a non-positive interval or a negative delay leave
-// the default in place. A zero delay means no wait.
 
 // WithLogger sets the logger.
 func WithLogger(l *slog.Logger) Option {
