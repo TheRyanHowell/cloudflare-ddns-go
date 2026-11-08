@@ -53,7 +53,7 @@ docker compose logs -f
 - If every provider fails in the same sync, those that could not be reached at all (DNS, connection, TLS or timeout errors) start no cooldown, since the local network is the likely cause, and are tried again at the next sync. A provider that answered with an error, such as `403` or `429`, still goes on cooldown.
 - If every provider is cooling down, the sync makes no requests and is retried at the next interval.
 - Temporary failures, such as network errors or Cloudflare `5xx` responses, are logged and retried on the next cycle.
-- Permanent failures are a rejected token (`401`/`403`), a missing record (`404`), or a record that is not of type `A`. The daemon logs the error, `/healthz` returns `503`, and the daemon exits with a non-zero status after an hour. Compose's `restart: always` then restarts it, so it retries hourly rather than in a tight loop.
+- Permanent failures are a rejected token (`401`/`403`), a missing record (`404`), a record that is not of type `A`, or a record whose name is not `CLOUDFLARE_RECORD_NAME` (a mistyped record ID would otherwise rename another record). The daemon logs the error, `/healthz` returns `503`, and the daemon exits with a non-zero status after an hour. Compose's `restart: always` then restarts it, so it retries hourly rather than in a tight loop.
 
 ## IP providers
 

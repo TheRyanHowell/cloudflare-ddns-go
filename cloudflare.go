@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 const (
@@ -32,6 +33,7 @@ type recordRequest struct {
 type recordResponse struct {
 	Result struct {
 		Type    string `json:"type"`
+		Name    string `json:"name"`
 		Content string `json:"content"`
 	} `json:"result"`
 }
@@ -73,6 +75,10 @@ func (r *cloudflareRecord) Content(ctx context.Context) (string, error) {
 	if resp.Result.Content == "" {
 		return "", fmt.Errorf("%w: no content", errInvalidRecord)
 	}
+	// Update writes recordName, so a record ID for another name would be renamed.
+	if !sameDNSName(resp.Result.Name, r.cfg.recordName) {
+		return "", fmt.Errorf("%w: name %q, want %q", errInvalidRecord, resp.Result.Name, r.cfg.recordName)
+	}
 	return resp.Result.Content, nil
 }
 
@@ -96,4 +102,9 @@ func (r *cloudflareRecord) Update(ctx context.Context, ip string) error {
 		return fmt.Errorf("update DNS record: %w", err)
 	}
 	return nil
+}
+
+// sameDNSName compares DNS names case-insensitively, ignoring a trailing dot.
+func sameDNSName(a, b string) bool {
+	return a != "" && strings.EqualFold(strings.TrimSuffix(a, "."), strings.TrimSuffix(b, "."))
 }

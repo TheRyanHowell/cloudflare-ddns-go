@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,11 +29,35 @@ func TestCloudflareRecordContent(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer key" {
 			t.Errorf("Authorization = %q", got)
 		}
-		io.WriteString(w, `{"result":{"type":"A","content":"1.2.3.4"}}`)
+		io.WriteString(w, `{"result":{"type":"A","name":"home.example.com","content":"1.2.3.4"}}`)
 	})
 	got, err := rec.Content(context.Background())
 	if err != nil || got != "1.2.3.4" {
 		t.Errorf("Content() = %q, %v", got, err)
+	}
+}
+
+func TestCloudflareRecordContentNameMatching(t *testing.T) {
+	tests := []struct {
+		name    string
+		got     string
+		wantErr bool
+	}{
+		{"exact", "home.example.com", false},
+		{"case and trailing dot", "Home.Example.com.", false},
+		{"other record", "mail.example.com", true},
+		{"missing", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := newTestRecord(t, func(w http.ResponseWriter, _ *http.Request) {
+				fmt.Fprintf(w, `{"result":{"type":"A","name":%q,"content":"1.2.3.4"}}`, tt.got)
+			})
+			_, err := rec.Content(context.Background())
+			if tt.wantErr != errors.Is(err, errInvalidRecord) || (!tt.wantErr && err != nil) {
+				t.Errorf("Content() err = %v, want invalid record: %v", err, tt.wantErr)
+			}
+		})
 	}
 }
 
