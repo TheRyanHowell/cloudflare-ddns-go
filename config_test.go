@@ -222,3 +222,19 @@ func FuzzIPProviderList(f *testing.F) {
 		}
 	})
 }
+
+func TestLoadConfigIPProvidersErrorText(t *testing.T) {
+	tests := map[string]string{
+		"amazon,example": `IP_PROVIDERS entry "example" must be one of cloudflare, amazon, akamai, opendns, ripe, hetzner, mullvad, ipinfo, ipify, icanhazip`,
+		"amazon,AMAZON":  `IP_PROVIDERS "amazon,AMAZON" names "amazon" more than once`,
+		"amazon,,nope":   `IP_PROVIDERS "amazon,,nope" has an empty entry`,
+		"nope,,amazon":   `IP_PROVIDERS entry "nope" must be one of cloudflare, amazon, akamai, opendns, ripe, hetzner, mullvad, ipinfo, ipify, icanhazip`,
+	}
+	for value, want := range tests {
+		env := baseEnv()
+		env["IP_PROVIDERS"] = value
+		if _, err := loadConfig(envFunc(env)); err == nil || err.Error() != want {
+			t.Errorf("IP_PROVIDERS=%q: err = %v, want %q", value, err, want)
+		}
+	}
+}

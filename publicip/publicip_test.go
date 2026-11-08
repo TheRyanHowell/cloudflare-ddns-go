@@ -1,4 +1,4 @@
-package main
+package publicip
 
 import (
 	"bytes"
@@ -22,6 +22,10 @@ import (
 
 	"golang.org/x/net/dns/dnsmessage"
 )
+
+var errFake = errors.New("fake failure")
+
+func discardLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
 
 func TestPublicIPLookupCurrent(t *testing.T) {
 	tests := []struct {
@@ -125,9 +129,9 @@ func (s *stubSource) Current(context.Context) (string, error) {
 	return s.ip, s.err
 }
 
-// newTestFallback returns a fallbackLookup whose clock reads *now.
-func newTestFallback(now *time.Time, sources ...ipSource) *fallbackLookup {
-	f := newFallbackLookup(discardLogger(), testInterval, sources...)
+// newTestFallback returns a Lookup whose clock reads *now.
+func newTestFallback(now *time.Time, sources ...ipSource) *Lookup {
+	f := newLookup(discardLogger(), testInterval, sources...)
 	f.now = func() time.Time { return *now }
 	return f
 }
@@ -144,7 +148,7 @@ func TestFallbackLookupUsesFirstSuccess(t *testing.T) {
 	primary := &stubSource{ip: "1.1.1.1"}
 	secondary := &stubSource{ip: "2.2.2.2"}
 
-	got, err := newFallbackLookup(discardLogger(), testInterval, primary, secondary).Current(context.Background())
+	got, err := newLookup(discardLogger(), testInterval, primary, secondary).Current(context.Background())
 	if err != nil || got != "1.1.1.1" || secondary.calls != 0 {
 		t.Errorf("Current() = %q, %v, secondary calls %d; want primary only", got, err, secondary.calls)
 	}
@@ -156,7 +160,7 @@ func TestFallbackLookupFallsBackAndWarns(t *testing.T) {
 	primary := &stubSource{err: errors.New("primary down")}
 	secondary := &stubSource{ip: "2.2.2.2"}
 
-	got, err := newFallbackLookup(logger, testInterval, primary, secondary).Current(context.Background())
+	got, err := newLookup(logger, testInterval, primary, secondary).Current(context.Background())
 	if err != nil || got != "2.2.2.2" {
 		t.Errorf("Current() = %q, %v; want 2.2.2.2", got, err)
 	}
@@ -171,7 +175,7 @@ func TestFallbackLookupAllFail(t *testing.T) {
 	errA, errB := errors.New("a down"), errors.New("b down")
 	sources := []ipSource{&stubSource{err: errA}, &stubSource{err: errB}}
 
-	_, err := newFallbackLookup(logger, testInterval, sources...).Current(context.Background())
+	_, err := newLookup(logger, testInterval, sources...).Current(context.Background())
 	if !errors.Is(err, errA) || !errors.Is(err, errB) {
 		t.Errorf("err = %v, want both source errors", err)
 	}
@@ -188,15 +192,19 @@ func TestFallbackLookupStopsWhenCancelled(t *testing.T) {
 	secondary := &stubSource{ip: "2.2.2.2"}
 	sources := []ipSource{&stubSource{err: context.Canceled}, secondary}
 
-	_, err := newFallbackLookup(discardLogger(), testInterval, sources...).Current(ctx)
+	_, err := newLookup(discardLogger(), testInterval, sources...).Current(ctx)
 	if err == nil || secondary.calls != 0 {
 		t.Errorf("err = %v, secondary calls %d; want error and no fallback", err, secondary.calls)
 	}
 }
 
-func TestNewPublicIPSourceUsesProvidersInOrder(t *testing.T) {
+func TestNewUsesProvidersInOrder(t *testing.T) {
+	l, err := New([]string{"ipify", "cloudflare", "akamai"}, WithLogger(discardLogger()), WithHTTPClient(http.DefaultClient), WithInterval(testInterval))
+	if err != nil {
+		t.Fatal(err)
+	}
 	var urls []string
-	for _, src := range newPublicIPSource(discardLogger(), http.DefaultClient, []string{"ipify", "cloudflare", "akamai"}, testInterval).sources {
+	for _, src := range l.sources {
 		urls = append(urls, src.src.(*publicIPLookup).url)
 	}
 	want := []string{ipifyURL, cloudflareTraceURL, akamaiURL}
@@ -218,8 +226,8 @@ func TestIPProvidersParseTheirFormat(t *testing.T) {
 		"hetzner":    "9.8.7.6\n",
 		"mullvad":    `{"ip":"9.8.7.6","mullvad_exit_ip":false}`,
 	}
-	if len(bodies) != len(ipProviders) {
-		t.Fatalf("test covers %d providers, want all %d", len(bodies), len(ipProviders))
+	if len(bodies) != len(ipProviders()) {
+		t.Fatalf("test covers %d providers, want all %d", len(bodies), len(ipProviders()))
 	}
 	for name, body := range bodies {
 		p, ok := findProvider(name)
@@ -306,7 +314,7 @@ func TestFallbackLookupAllCoolingDownMakesNoRequests(t *testing.T) {
 
 	now = testEpoch.Add(30 * time.Second)
 	_, err := f.Current(context.Background())
-	if !errors.Is(err, errProvidersCoolingDown) || a.calls != 1 || b.calls != 1 {
+	if !errors.Is(err, ErrProvidersCoolingDown) || a.calls != 1 || b.calls != 1 {
 		t.Errorf("err = %v, calls = %d, %d; want cooling-down error and no new requests", err, a.calls, b.calls)
 	}
 }
@@ -484,7 +492,7 @@ type callStep struct {
 }
 
 // assertPrimaryCalls runs a lookup at each step and checks how often primary was asked.
-func assertPrimaryCalls(t *testing.T, f *fallbackLookup, now *time.Time, primary *stubSource, steps []callStep) {
+func assertPrimaryCalls(t *testing.T, f *Lookup, now *time.Time, primary *stubSource, steps []callStep) {
 	t.Helper()
 	for _, step := range steps {
 		*now = testEpoch.Add(step.at)
@@ -777,7 +785,7 @@ func FuzzPublicIPLookupAcceptsOnlyIPv4(f *testing.F) {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, body string) {
-		for _, p := range ipProviders {
+		for _, p := range ipProviders() {
 			l := &publicIPLookup{client: &http.Client{Transport: &bodyTransport{body: body}}, ipProvider: p.ipProvider}
 			got, err := l.Current(context.Background())
 			if err != nil {
@@ -788,4 +796,51 @@ func FuzzPublicIPLookupAcceptsOnlyIPv4(f *testing.F) {
 			}
 		}
 	})
+}
+
+func TestValidate(t *testing.T) {
+	tests := []struct {
+		names   []string
+		wantErr string
+		wantIs  error
+	}{
+		{names: []string{"amazon"}},
+		{names: Providers()},
+		{names: nil, wantErr: "no public IP providers"},
+		{names: []string{"amazon", "example"}, wantErr: `unknown public IP provider "example"`, wantIs: ErrUnknownProvider},
+		{names: []string{"amazon", "akamai", "amazon"}, wantErr: `named more than once: "amazon"`, wantIs: ErrDuplicateProvider},
+	}
+	for _, tt := range tests {
+		err := Validate(tt.names)
+		if (tt.wantErr == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tt.wantErr)) {
+			t.Errorf("Validate(%q) = %v, want error containing %q", tt.names, err, tt.wantErr)
+		}
+		if tt.wantIs != nil && !errors.Is(err, tt.wantIs) {
+			t.Errorf("Validate(%q) = %v, want it to wrap %v", tt.names, err, tt.wantIs)
+		}
+	}
+}
+
+func TestNewRejectsInvalidNames(t *testing.T) {
+	if l, err := New([]string{"example"}); err == nil || l != nil {
+		t.Errorf("New() = %v, %v; want an error", l, err)
+	}
+}
+
+func TestNewDefaults(t *testing.T) {
+	l, err := New([]string{"amazon"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := l.sources[0].src.(*publicIPLookup).client
+	if l.interval != defaultInterval || l.logger == nil || client.Timeout != requestTimeout {
+		t.Errorf("interval %v, logger %v, timeout %v; want the defaults", l.interval, l.logger, client.Timeout)
+	}
+}
+
+func TestProvidersReturnsACopy(t *testing.T) {
+	Providers()[0] = "changed"
+	if Providers()[0] != "cloudflare" {
+		t.Error("Providers() exposes shared state")
+	}
 }

@@ -1,4 +1,6 @@
-package main
+// Package publicip finds this host's public IPv4 address by asking a list of
+// providers in order, skipping those that recently failed.
+package publicip
 
 import (
 	"context"
@@ -38,6 +40,10 @@ const (
 	maxQuotedBodyChars = 64
 	// dialTimeout bounds establishing a connection to the IP service.
 	dialTimeout = 10 * time.Second
+	// requestTimeout bounds each request of the default client.
+	requestTimeout = 30 * time.Second
+	// defaultInterval is the sync interval cooldowns assume unless WithInterval is set.
+	defaultInterval = 5 * time.Minute
 )
 
 // newIPv4Client returns a client that only dials over IPv4, so a dual-stack
@@ -119,24 +125,27 @@ type namedProvider struct {
 	ipProvider
 }
 
-// ipProviders are the services IP_PROVIDERS can name, in the default order.
-var ipProviders = []namedProvider{
-	{"cloudflare", ipProvider{url: cloudflareTraceURL, dnsFallbackURL: cloudflareTraceIPURL, extract: traceIP}},
-	{"amazon", ipProvider{url: amazonCheckIPURL, extract: strings.TrimSpace}},
-	{"akamai", ipProvider{url: akamaiURL, extract: strings.TrimSpace}},
-	{"opendns", ipProvider{url: opendnsDoHURL, extract: dohIPv4, accept: dnsMessageType}},
-	{"ripe", ipProvider{url: ripeURL, extract: jsonIP("data", "ip")}},
-	{"hetzner", ipProvider{url: hetznerURL, extract: strings.TrimSpace}},
-	{"mullvad", ipProvider{url: mullvadURL, extract: jsonIP("ip")}},
-	{"ipinfo", ipProvider{url: ipinfoURL, extract: strings.TrimSpace}},
-	{"ipify", ipProvider{url: ipifyURL, extract: strings.TrimSpace}},
-	{"icanhazip", ipProvider{url: icanhazipURL, extract: strings.TrimSpace}},
+// ipProviders returns the services New can name, in the default order.
+func ipProviders() []namedProvider {
+	return []namedProvider{
+		{"cloudflare", ipProvider{url: cloudflareTraceURL, dnsFallbackURL: cloudflareTraceIPURL, extract: traceIP}},
+		{"amazon", ipProvider{url: amazonCheckIPURL, extract: strings.TrimSpace}},
+		{"akamai", ipProvider{url: akamaiURL, extract: strings.TrimSpace}},
+		{"opendns", ipProvider{url: opendnsDoHURL, extract: dohIPv4, accept: dnsMessageType}},
+		{"ripe", ipProvider{url: ripeURL, extract: jsonIP("data", "ip")}},
+		{"hetzner", ipProvider{url: hetznerURL, extract: strings.TrimSpace}},
+		{"mullvad", ipProvider{url: mullvadURL, extract: jsonIP("ip")}},
+		{"ipinfo", ipProvider{url: ipinfoURL, extract: strings.TrimSpace}},
+		{"ipify", ipProvider{url: ipifyURL, extract: strings.TrimSpace}},
+		{"icanhazip", ipProvider{url: icanhazipURL, extract: strings.TrimSpace}},
+	}
 }
 
-// providerNames returns every provider name in the default order.
-func providerNames() []string {
-	names := make([]string, len(ipProviders))
-	for i, p := range ipProviders {
+// Providers returns every provider name in the default order.
+func Providers() []string {
+	providers := ipProviders()
+	names := make([]string, len(providers))
+	for i, p := range providers {
 		names[i] = p.name
 	}
 	return names
@@ -144,28 +153,85 @@ func providerNames() []string {
 
 // findProvider returns the provider called name.
 func findProvider(name string) (ipProvider, bool) {
-	i := slices.IndexFunc(ipProviders, func(p namedProvider) bool { return p.name == name })
+	providers := ipProviders()
+	i := slices.IndexFunc(providers, func(p namedProvider) bool { return p.name == name })
 	if i < 0 {
 		return ipProvider{}, false
 	}
-	return ipProviders[i].ipProvider, true
+	return providers[i].ipProvider, true
 }
 
-// newPublicIPSource tries the named providers in order. Each name must be in
-// ipProviders.
-func newPublicIPSource(logger *slog.Logger, client *http.Client, names []string, interval time.Duration) *fallbackLookup {
+// ipSource reports the current public IP.
+type ipSource interface {
+	Current(ctx context.Context) (string, error)
+}
+
+// options are the settings New applies.
+type options struct {
+	interval time.Duration
+	logger   *slog.Logger
+	client   *http.Client
+}
+
+// Option configures New.
+type Option func(*options)
+
+// WithInterval sets the sync interval that cooldowns are measured in.
+func WithInterval(d time.Duration) Option { return func(o *options) { o.interval = d } }
+
+// WithLogger sets the logger that provider failures are reported to.
+func WithLogger(l *slog.Logger) Option { return func(o *options) { o.logger = l } }
+
+// WithHTTPClient replaces the default client, which only dials over IPv4.
+func WithHTTPClient(c *http.Client) Option { return func(o *options) { o.client = c } }
+
+// Errors Validate wraps for a bad name.
+var (
+	ErrUnknownProvider   = errors.New("unknown public IP provider")
+	ErrDuplicateProvider = errors.New("public IP provider named more than once")
+)
+
+// Validate reports an error unless names is a non-empty list of distinct
+// provider names.
+func Validate(names []string) error {
+	if len(names) == 0 {
+		return errors.New("no public IP providers named")
+	}
+	for i, name := range names {
+		if slices.Contains(names[:i], name) {
+			return fmt.Errorf("%w: %q", ErrDuplicateProvider, name)
+		}
+		if _, ok := findProvider(name); !ok {
+			return fmt.Errorf("%w %q, must be one of %s", ErrUnknownProvider, name, strings.Join(Providers(), ", "))
+		}
+	}
+	return nil
+}
+
+// New returns a Lookup that tries the named providers in order.
+func New(names []string, opts ...Option) (*Lookup, error) {
+	if err := Validate(names); err != nil {
+		return nil, err
+	}
+	o := options{interval: defaultInterval, logger: slog.Default()}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	if o.client == nil {
+		o.client = newIPv4Client(requestTimeout)
+	}
 	sources := make([]ipSource, 0, len(names))
 	for _, name := range names {
 		p, _ := findProvider(name)
-		sources = append(sources, &publicIPLookup{client: client, ipProvider: p})
+		sources = append(sources, &publicIPLookup{client: o.client, ipProvider: p})
 	}
-	return newFallbackLookup(logger, interval, sources...)
+	return newLookup(o.logger, o.interval, sources...), nil
 }
 
-// fallbackLookup tries each source in order and returns the first address. A
+// Lookup tries each source in order and returns the first address. A
 // source that fails is skipped until its cooldown ends, unless it is the only
 // one. It is not safe for concurrent use.
-type fallbackLookup struct {
+type Lookup struct {
 	logger   *slog.Logger
 	sources  []*trackedSource
 	now      func() time.Time
@@ -190,9 +256,9 @@ const maxUnreachablePerLookup = 3
 // maxCooldown caps a source's cooldown, unless the sync interval is longer.
 const maxCooldown = time.Hour
 
-// errProvidersCoolingDown is returned, without making any requests, when every
+// ErrProvidersCoolingDown is returned, without making any requests, when every
 // source is cooling down.
-var errProvidersCoolingDown = errors.New("every public IP provider is cooling down after failures")
+var ErrProvidersCoolingDown = errors.New("every public IP provider is cooling down after failures")
 
 // cooldown returns how long to skip a source after failures consecutive
 // failures: the next 1, 2, 4… syncs, up to maxCooldown or one interval. Half an
@@ -206,8 +272,8 @@ func cooldown(failures int, interval time.Duration) time.Duration {
 	return min(d, limit) + interval/2
 }
 
-func newFallbackLookup(logger *slog.Logger, interval time.Duration, sources ...ipSource) *fallbackLookup {
-	f := &fallbackLookup{logger: logger, now: time.Now, interval: interval}
+func newLookup(logger *slog.Logger, interval time.Duration, sources ...ipSource) *Lookup {
+	f := &Lookup{logger: logger, now: time.Now, interval: interval}
 	for _, src := range sources {
 		f.sources = append(f.sources, &trackedSource{src: src})
 	}
@@ -227,7 +293,7 @@ func (ts *trackedSource) skipOneSync(now time.Time, interval time.Duration, err 
 
 // chargeUnreachable counts a failure for each source skipped as unreachable,
 // now that another source has shown the network works.
-func (f *fallbackLookup) chargeUnreachable(now time.Time) {
+func (f *Lookup) chargeUnreachable(now time.Time) {
 	for _, ts := range f.sources {
 		if err := ts.unreachable; err != nil {
 			wait := ts.recordFailure(now, f.interval, err)
@@ -255,7 +321,7 @@ type sourceFailure struct {
 // logging each failure, or every error joined if all the sources it tried
 // failed. When every source fails, transport errors start no cooldown, since
 // the local network is the likely cause.
-func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
+func (f *Lookup) Current(ctx context.Context) (string, error) {
 	now := f.now()
 	var failures []sourceFailure
 	unreachable := 0
@@ -284,7 +350,7 @@ func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 }
 
 // succeeded settles a lookup that ts answered.
-func (f *fallbackLookup) succeeded(ts *trackedSource, now time.Time, failures []sourceFailure) {
+func (f *Lookup) succeeded(ts *trackedSource, now time.Time, failures []sourceFailure) {
 	for _, sf := range failures {
 		f.settle(sf, now, true)
 	}
@@ -294,9 +360,9 @@ func (f *fallbackLookup) succeeded(ts *trackedSource, now time.Time, failures []
 
 // failed settles a lookup that no source answered. skipped are the unreachable
 // sources a stop leaves out of the next sync.
-func (f *fallbackLookup) failed(now time.Time, failures, skipped []sourceFailure) error {
+func (f *Lookup) failed(now time.Time, failures, skipped []sourceFailure) error {
 	if len(failures) == 0 {
-		return fmt.Errorf("%w; next retry in %s", errProvidersCoolingDown, f.nextRetry(now).Round(time.Second))
+		return fmt.Errorf("%w; next retry in %s", ErrProvidersCoolingDown, f.nextRetry(now).Round(time.Second))
 	}
 	errs := make([]error, len(failures))
 	for i, sf := range failures {
@@ -310,13 +376,13 @@ func (f *fallbackLookup) failed(now time.Time, failures, skipped []sourceFailure
 }
 
 // untriedAfter reports whether a source after index i is not cooling down.
-func (f *fallbackLookup) untriedAfter(i int, now time.Time) bool {
+func (f *Lookup) untriedAfter(i int, now time.Time) bool {
 	return slices.ContainsFunc(f.sources[i+1:], func(ts *trackedSource) bool { return !now.Before(ts.until) })
 }
 
 // settle logs a failure and, when charge is true, starts its cooldown. A lone
 // source is never put on cooldown.
-func (f *fallbackLookup) settle(sf sourceFailure, now time.Time, charge bool) {
+func (f *Lookup) settle(sf sourceFailure, now time.Time, charge bool) {
 	if len(f.sources) == 1 {
 		// A cooldown would only fail the next sync, as there is nothing to fall
 		// back to, so only a Retry-After the provider sent applies.
@@ -335,7 +401,7 @@ func (f *fallbackLookup) settle(sf sourceFailure, now time.Time, charge bool) {
 }
 
 // nextRetry returns how long until the first source's cooldown ends.
-func (f *fallbackLookup) nextRetry(now time.Time) time.Duration {
+func (f *Lookup) nextRetry(now time.Time) time.Duration {
 	first := slices.MinFunc(f.sources, func(a, b *trackedSource) int { return a.until.Compare(b.until) })
 	return first.until.Sub(now)
 }

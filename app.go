@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/TheRyanHowell/cloudflare-ddns-go/publicip"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -36,11 +37,15 @@ func run(ctx context.Context, logger *slog.Logger, args []string, getenv func(st
 		return err
 	}
 
+	lookup, err := publicip.New(cfg.providers, publicip.WithLogger(logger), publicip.WithInterval(cfg.interval))
+	if err != nil {
+		return fmt.Errorf("public IP lookup: %w", err)
+	}
 	state := newHealth()
 	s := &syncer{
 		logger:            logger,
 		record:            &cloudflareRecord{client: &http.Client{Timeout: requestTimeout}, baseURL: cloudflareAPIBaseURL, cfg: cfg},
-		lookup:            newPublicIPSource(logger, newIPv4Client(requestTimeout), cfg.providers, cfg.interval),
+		lookup:            lookup,
 		health:            state,
 		interval:          cfg.interval,
 		startupRetryDelay: startupRetryDelay,

@@ -4,10 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/TheRyanHowell/cloudflare-ddns-go/publicip"
 )
 
 // config holds the Cloudflare settings read from the environment.
@@ -89,28 +90,34 @@ func loadConfig(getenv func(string) string) (config, error) {
 }
 
 // ipProviderList reads IP_PROVIDERS, a comma-separated, case-insensitive list
-// of distinct names from ipProviders in the order to try them. Unset means
-// every provider in the default order.
+// of distinct provider names in the order to try them. Unset means every
+// provider in the default order.
 func ipProviderList(getenv func(string) string) ([]string, error) {
 	v := envValue(getenv, "IP_PROVIDERS")
 	if v == "" {
-		return providerNames(), nil
+		return publicip.Providers(), nil
 	}
 	var names []string
 	for raw := range strings.SplitSeq(v, ",") {
 		name := strings.ToLower(strings.TrimSpace(raw))
-		switch {
-		case name == "":
+		if name == "" {
 			return nil, fmt.Errorf("IP_PROVIDERS %q has an empty entry", v)
-		case slices.Contains(names, name):
-			return nil, fmt.Errorf("IP_PROVIDERS %q names %q more than once", v, name)
-		}
-		if _, ok := findProvider(name); !ok {
-			return nil, fmt.Errorf("IP_PROVIDERS entry %q must be one of %s", name, strings.Join(providerNames(), ", "))
 		}
 		names = append(names, name)
+		// Validating each prefix reports the first bad entry, which is name.
+		if err := publicip.Validate(names); err != nil {
+			return nil, ipProviderError(v, name, err)
+		}
 	}
 	return names, nil
+}
+
+// ipProviderError describes why IP_PROVIDERS value v cannot name name.
+func ipProviderError(v, name string, err error) error {
+	if errors.Is(err, publicip.ErrDuplicateProvider) {
+		return fmt.Errorf("IP_PROVIDERS %q names %q more than once", v, name)
+	}
+	return fmt.Errorf("IP_PROVIDERS entry %q must be one of %s", name, strings.Join(publicip.Providers(), ", "))
 }
 
 // syncInterval reads SYNC_INTERVAL as a Go duration, such as "10m".
