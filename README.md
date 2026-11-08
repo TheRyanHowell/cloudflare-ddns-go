@@ -78,7 +78,7 @@ Every provider is reached over HTTPS, so the answer is protected in transit. `op
 
 ## Health check
 
-The daemon serves `GET /healthz` on `HEALTH_ADDR`. It returns `200` while the last successful sync is less than two and a half sync intervals old plus an allowance for one slow sync, and `503` otherwise. The allowance is 30 seconds per IP provider plus 30 seconds for the record update, so the window is 16.5 minutes with the defaults.
+The daemon serves `GET /healthz` on `HEALTH_ADDR`. It returns `200` while the last successful sync is less than two and a half sync intervals old plus an allowance for one slow sync, and `503` otherwise. The allowance is 30 seconds per IP provider plus 30 seconds for the record update, so the window is 18 minutes with the defaults.
 
 The Compose healthcheck runs `/cloudflare-ddns healthcheck`, which probes that endpoint from inside the container.
 
