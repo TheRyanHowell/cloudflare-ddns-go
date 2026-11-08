@@ -40,8 +40,8 @@ const (
 	maxQuotedBodyChars = 64
 	// dialTimeout bounds establishing a connection to the IP service.
 	dialTimeout = 10 * time.Second
-	// requestTimeout bounds each request of the default client.
-	requestTimeout = 30 * time.Second
+	// RequestTimeout bounds each request of the default client.
+	RequestTimeout = 30 * time.Second
 	// defaultInterval is the sync interval cooldowns assume unless WithInterval is set.
 	defaultInterval = 5 * time.Minute
 )
@@ -218,7 +218,7 @@ func New(names []string, opts ...Option) (*Lookup, error) {
 		opt(&o)
 	}
 	if o.client == nil {
-		o.client = newIPv4Client(requestTimeout)
+		o.client = newIPv4Client(RequestTimeout)
 	}
 	sources := make([]ipSource, 0, len(names))
 	for _, name := range names {

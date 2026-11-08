@@ -19,8 +19,8 @@ import (
 const (
 	defaultBaseURL = "https://api.cloudflare.com/client/v4"
 	recordType     = "A"
-	// requestTimeout bounds each request of the default client.
-	requestTimeout = 30 * time.Second
+	// RequestTimeout bounds each request of the default client.
+	RequestTimeout = 30 * time.Second
 )
 
 // ErrInvalidRecord marks a record that exists but cannot be managed.
@@ -79,7 +79,7 @@ func WithBaseURL(url string) Option { return func(r *Record) { r.baseURL = url }
 
 // NewRecord returns a Record for cfg.
 func NewRecord(cfg RecordConfig, opts ...Option) *Record {
-	r := &Record{client: &http.Client{Timeout: requestTimeout}, baseURL: defaultBaseURL, cfg: cfg}
+	r := &Record{client: &http.Client{Timeout: RequestTimeout}, baseURL: defaultBaseURL, cfg: cfg}
 	for _, opt := range opts {
 		opt(r)
 	}

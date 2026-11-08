@@ -833,7 +833,7 @@ func TestNewDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := l.sources[0].src.(*publicIPLookup).client
-	if l.interval != defaultInterval || l.logger == nil || client.Timeout != requestTimeout {
+	if l.interval != defaultInterval || l.logger == nil || client.Timeout != RequestTimeout {
 		t.Errorf("interval %v, logger %v, timeout %v; want the defaults", l.interval, l.logger, client.Timeout)
 	}
 }

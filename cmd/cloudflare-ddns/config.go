@@ -13,7 +13,7 @@ import (
 
 // config holds the Cloudflare settings read from the environment.
 type config struct {
-	apiKey     string
+	apiToken   string
 	zoneID     string
 	recordID   string
 	recordName string
@@ -55,7 +55,7 @@ func healthAddr(getenv func(string) string) string {
 func loadConfig(getenv func(string) string) (config, error) {
 	var cfg config
 	var err error
-	if cfg.apiKey, err = apiToken(getenv); err != nil {
+	if cfg.apiToken, err = apiToken(getenv); err != nil {
 		return config{}, err
 	}
 	fields := []struct {

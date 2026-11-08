@@ -201,7 +201,7 @@ func TestIsPermanent(t *testing.T) {
 
 func TestNewRecordDefaults(t *testing.T) {
 	r := NewRecord(testConfig)
-	if r.baseURL != "https://api.cloudflare.com/client/v4" || r.client.Timeout != requestTimeout || r.cfg != testConfig {
+	if r.baseURL != "https://api.cloudflare.com/client/v4" || r.client.Timeout != RequestTimeout || r.cfg != testConfig {
 		t.Errorf("NewRecord() = %+v, want the Cloudflare API with the default timeout", r)
 	}
 }

@@ -40,7 +40,7 @@ func TestLoadConfig(t *testing.T) {
 
 	got, err := loadConfig(getenv)
 	want := config{
-		apiKey: "key", zoneID: "zone", recordID: "record", recordName: "home.example.com",
+		apiToken: "key", zoneID: "zone", recordID: "record", recordName: "home.example.com",
 		interval: defaultSyncInterval, ttl: defaultRecordTTL,
 		providers: defaultProviders,
 	}
@@ -191,8 +191,8 @@ func TestLoadConfigToken(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || got.apiKey != tt.want {
-				t.Errorf("token = %q, %v; want %q", got.apiKey, err, tt.want)
+			if err != nil || got.apiToken != tt.want {
+				t.Errorf("token = %q, %v; want %q", got.apiToken, err, tt.want)
 			}
 		})
 	}

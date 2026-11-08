@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"github.com/TheRyanHowell/cloudflare-ddns-go/publicip"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -145,9 +146,9 @@ func TestHealthStaleAfter(t *testing.T) {
 		providers int
 		want      time.Duration
 	}{
-		{30 * time.Second, 1, 75*time.Second + 2*requestTimeout},
-		{30 * time.Second, 2, 75*time.Second + 3*requestTimeout},
-		{5 * time.Minute, 7, 12*time.Minute + 30*time.Second + 8*requestTimeout},
+		{30 * time.Second, 1, 75*time.Second + publicip.RequestTimeout + cloudflare.RequestTimeout},
+		{30 * time.Second, 2, 75*time.Second + 2*publicip.RequestTimeout + cloudflare.RequestTimeout},
+		{5 * time.Minute, 7, 12*time.Minute + 30*time.Second + 7*publicip.RequestTimeout + cloudflare.RequestTimeout},
 	}
 	for _, tt := range tests {
 		if got := healthStaleAfter(tt.interval, tt.providers); got != tt.want {

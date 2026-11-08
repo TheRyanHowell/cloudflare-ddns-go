@@ -15,12 +15,8 @@ import (
 )
 
 const (
-	// startupRetryDelay is the wait between attempts to read the record at startup.
-	startupRetryDelay = 30 * time.Second
-	// permanentFailureExitDelay spaces out restarts after a permanent failure,
-	// such as a rejected token, so the container retries hourly.
-	permanentFailureExitDelay = time.Hour
-	requestTimeout            = 30 * time.Second
+	// probeTimeout bounds the healthcheck subcommand's request.
+	probeTimeout = 30 * time.Second
 
 	healthcheckCommand = "healthcheck"
 )
@@ -50,8 +46,6 @@ func run(ctx context.Context, logger *slog.Logger, args []string, getenv func(st
 		ddns.WithHealthReporter(state),
 		ddns.WithPermanentCheck(cloudflare.IsPermanent),
 		ddns.WithInterval(cfg.interval),
-		ddns.WithStartupRetryDelay(startupRetryDelay),
-		ddns.WithExitDelay(permanentFailureExitDelay),
 	)
 
 	srv := health.NewServer(addr, state.Handler(healthStaleAfter(cfg.interval, len(cfg.providers))))
@@ -60,19 +54,19 @@ func run(ctx context.Context, logger *slog.Logger, args []string, getenv func(st
 
 func newRecord(cfg config) *cloudflare.Record {
 	return cloudflare.NewRecord(cloudflare.RecordConfig{
-		Token:    cfg.apiKey,
+		Token:    cfg.apiToken,
 		ZoneID:   cfg.zoneID,
 		RecordID: cfg.recordID,
 		Name:     cfg.recordName,
 		TTL:      cfg.ttl,
-	}, cloudflare.WithHTTPClient(&http.Client{Timeout: requestTimeout}))
+	})
 }
 
 // healthStaleAfter allows two and a half sync intervals plus one slow sync, in
 // which every provider and the record update time out, so a missed sync or two
 // does not flap the check but a stuck daemon is reported.
 func healthStaleAfter(interval time.Duration, providers int) time.Duration {
-	slowSync := time.Duration(providers+1) * requestTimeout
+	slowSync := time.Duration(providers)*publicip.RequestTimeout + cloudflare.RequestTimeout
 	return interval*5/2 + slowSync
 }
 
@@ -95,5 +89,5 @@ func runHealthcheck(ctx context.Context, addr string) error {
 	if err != nil {
 		return err
 	}
-	return health.Probe(ctx, health.NewProbeClient(requestTimeout), url)
+	return health.Probe(ctx, health.NewProbeClient(probeTimeout), url)
 }
