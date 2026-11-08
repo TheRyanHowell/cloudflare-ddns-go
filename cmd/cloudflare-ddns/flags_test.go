@@ -64,12 +64,16 @@ func TestEmptyFlagFallsBackToTheEnvironment(t *testing.T) {
 	// An unset shell variable expands to an empty flag, which should not hide
 	// a value set in the environment.
 	env := map[string]string{"CLOUDFLARE_ZONE_ID": "from-env", "CLOUDFLARE_API_TOKEN": "env-token"}
-	getenv := overlayFor(t, []string{"--zone-id= ", "--token="}, env)
+	getenv := overlayFor(t, []string{"--zone-id=", "--token= "}, env)
 	if got := getenv("CLOUDFLARE_ZONE_ID"); got != "from-env" {
 		t.Errorf("zone = %q, want from-env", got)
 	}
 	if got := getenv("CLOUDFLARE_API_TOKEN"); got != "env-token" {
 		t.Errorf("token = %q, want env-token", got)
+	}
+	blank := overlayFor(t, []string{"--zone-id= "}, env)
+	if got := blank("CLOUDFLARE_ZONE_ID"); got != "from-env" {
+		t.Errorf("blank flag: zone = %q, want from-env", got)
 	}
 }
 
