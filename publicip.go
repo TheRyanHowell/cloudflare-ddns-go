@@ -206,6 +206,11 @@ func newFallbackLookup(logger *slog.Logger, sources ...ipSource) *fallbackLookup
 	return f
 }
 
+// reset clears the source's failures after a success.
+func (ts *trackedSource) reset() {
+	ts.failures, ts.until = 0, time.Time{}
+}
+
 // recordFailure starts a cooldown, honouring a longer Retry-After, and returns it.
 func (ts *trackedSource) recordFailure(now time.Time, err error) time.Duration {
 	ts.failures++
@@ -245,7 +250,7 @@ func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 			for _, sf := range failures {
 				f.settle(sf, now, true)
 			}
-			ts.failures, ts.until = 0, time.Time{}
+			ts.reset()
 			return ip, nil
 		}
 		if ctx.Err() != nil {

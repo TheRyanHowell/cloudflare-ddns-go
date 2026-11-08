@@ -42,7 +42,7 @@ const defaultHealthAddr = "127.0.0.1:8080"
 
 // healthAddr returns the health endpoint's listen address.
 func healthAddr(getenv func(string) string) string {
-	if addr := strings.TrimSpace(getenv("HEALTH_ADDR")); addr != "" {
+	if addr := envValue(getenv, "HEALTH_ADDR"); addr != "" {
 		return addr
 	}
 	return defaultHealthAddr
@@ -61,7 +61,7 @@ func loadConfig(getenv func(string) string) (config, error) {
 		{"CLOUDFLARE_RECORD_NAME", &cfg.recordName},
 	}
 	for _, f := range fields {
-		v := strings.TrimSpace(getenv(f.env))
+		v := envValue(getenv, f.env)
 		if v == "" {
 			return config{}, fmt.Errorf("%s is not set", f.env)
 		}
@@ -85,7 +85,7 @@ func loadConfig(getenv func(string) string) (config, error) {
 // of distinct names from ipProviders in the order to try them. Unset means
 // every provider in the default order.
 func ipProviderList(getenv func(string) string) ([]string, error) {
-	v := strings.TrimSpace(getenv("IP_PROVIDERS"))
+	v := envValue(getenv, "IP_PROVIDERS")
 	if v == "" {
 		return providerNames(), nil
 	}
@@ -108,7 +108,7 @@ func ipProviderList(getenv func(string) string) ([]string, error) {
 
 // syncInterval reads SYNC_INTERVAL as a Go duration, such as "10m".
 func syncInterval(getenv func(string) string) (time.Duration, error) {
-	v := strings.TrimSpace(getenv("SYNC_INTERVAL"))
+	v := envValue(getenv, "SYNC_INTERVAL")
 	if v == "" {
 		return defaultSyncInterval, nil
 	}
@@ -121,7 +121,7 @@ func syncInterval(getenv func(string) string) (time.Duration, error) {
 
 // recordTTL reads CLOUDFLARE_RECORD_TTL in seconds: 1 for automatic, or 30 to 86400.
 func recordTTL(getenv func(string) string) (int, error) {
-	v := strings.TrimSpace(getenv("CLOUDFLARE_RECORD_TTL"))
+	v := envValue(getenv, "CLOUDFLARE_RECORD_TTL")
 	if v == "" {
 		return defaultRecordTTL, nil
 	}
@@ -130,4 +130,9 @@ func recordTTL(getenv func(string) string) (int, error) {
 		return 0, fmt.Errorf("CLOUDFLARE_RECORD_TTL %q must be %d (automatic) or between %d and %d seconds", v, autoRecordTTL, minRecordTTL, maxRecordTTL)
 	}
 	return ttl, nil
+}
+
+// envValue returns the environment variable key with surrounding space removed.
+func envValue(getenv func(string) string, key string) string {
+	return strings.TrimSpace(getenv(key))
 }
