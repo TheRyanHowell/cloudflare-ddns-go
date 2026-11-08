@@ -3,15 +3,19 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/net/dns/dnsmessage"
 )
 
 func TestPublicIPLookupCurrent(t *testing.T) {
@@ -196,6 +200,7 @@ func TestIPProvidersParseTheirFormat(t *testing.T) {
 		"icanhazip":  "9.8.7.6\n",
 		"akamai":     "9.8.7.6",
 		"ipinfo":     "9.8.7.6",
+		"opendns":    dohResponse(t, dnsmessage.RCodeSuccess, "myip.opendns.com.", [4]byte{9, 8, 7, 6}),
 	}
 	if len(bodies) != len(ipProviders) {
 		t.Fatalf("test covers %d providers, want all %d", len(bodies), len(ipProviders))
@@ -342,5 +347,96 @@ func TestCloudflareProviderUsesHostname(t *testing.T) {
 	// https://github.com/favonia/cloudflare-ddns/issues/985.
 	if got, want := ipProviders["cloudflare"].url, "https://api.cloudflare.com/cdn-cgi/trace"; got != want {
 		t.Errorf("cloudflare url = %q, want %q", got, want)
+	}
+}
+
+// dohResponse builds a DNS response answering name with an A record for ip.
+func dohResponse(t *testing.T, rcode dnsmessage.RCode, name string, ip [4]byte) string {
+	t.Helper()
+	b := dnsmessage.NewBuilder(nil, dnsmessage.Header{Response: true, RCode: rcode})
+	n := dnsmessage.MustNewName(name)
+	if err := b.StartQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Question(dnsmessage.Question{Name: dnsmessage.MustNewName("myip.opendns.com."), Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.StartAnswers(); err != nil {
+		t.Fatal(err)
+	}
+	if rcode == dnsmessage.RCodeSuccess {
+		hdr := dnsmessage.ResourceHeader{Name: n, Class: dnsmessage.ClassINET, TTL: 0}
+		if err := b.AResource(hdr, dnsmessage.AResource{A: ip}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	msg, err := b.Finish()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(msg)
+}
+
+func TestDoHIPv4(t *testing.T) {
+	ip := [4]byte{9, 8, 7, 6}
+	notResponse := []byte(dohResponse(t, dnsmessage.RCodeSuccess, "myip.opendns.com.", ip))
+	notResponse[2] &^= 0x80 // clear the QR (response) bit
+
+	tests := map[string]struct {
+		body string
+		want string
+	}{
+		"answer":         {dohResponse(t, dnsmessage.RCodeSuccess, "myip.opendns.com.", ip), "9.8.7.6"},
+		"name case":      {dohResponse(t, dnsmessage.RCodeSuccess, "MyIP.OpenDNS.com.", ip), "9.8.7.6"},
+		"nxdomain":       {dohResponse(t, dnsmessage.RCodeNameError, "myip.opendns.com.", ip), ""},
+		"other name":     {dohResponse(t, dnsmessage.RCodeSuccess, "example.com.", ip), ""},
+		"not a response": {string(notResponse), ""},
+		"garbage":        {"9.8.7.6", ""},
+		"empty":          {"", ""},
+	}
+	for name, tt := range tests {
+		if got := dohIPv4(tt.body); got != tt.want {
+			t.Errorf("%s: dohIPv4() = %q, want %q", name, got, tt.want)
+		}
+	}
+}
+
+func TestOpenDNSQueryAsksForMyIP(t *testing.T) {
+	u, err := url.Parse(ipProviders["opendns"].url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Scheme != "https" || u.Host != "doh.opendns.com" || u.Path != "/dns-query" {
+		t.Errorf("url = %s, want https://doh.opendns.com/dns-query", u)
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(u.Query().Get("dns"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p dnsmessage.Parser
+	hdr, err := p.Start(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := p.Question()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hdr.ID != 0 || hdr.Response || !hdr.RecursionDesired || q.Name.String() != "myip.opendns.com." || q.Type != dnsmessage.TypeA || q.Class != dnsmessage.ClassINET {
+		t.Errorf("query = %+v %+v, want ID 0 recursive A IN myip.opendns.com.", hdr, q)
+	}
+}
+
+func TestPublicIPLookupSendsAccept(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Accept")
+		io.WriteString(w, "9.8.7.6")
+	}))
+	defer srv.Close()
+
+	l := &publicIPLookup{client: srv.Client(), url: srv.URL, extract: strings.TrimSpace, accept: dnsMessageType}
+	if _, err := l.Current(context.Background()); err != nil || got != dnsMessageType {
+		t.Errorf("Accept = %q, err %v; want %q", got, err, dnsMessageType)
 	}
 }

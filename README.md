@@ -63,8 +63,11 @@ docker compose logs -f
 | `akamai` | `https://whatismyip.akamai.com/` | Akamai | Default, fourth |
 | `ipify` | `https://api4.ipify.org/` | Cloudflare | |
 | `icanhazip` | `https://icanhazip.com/` | Cloudflare | Owned and run by Cloudflare |
+| `opendns` | `https://doh.opendns.com/dns-query` | Cisco (OpenDNS) | Asks for `myip.opendns.com` over DNS-over-HTTPS |
 
 Only ipinfo documents a rate limit. ipify states it has none, and the others publish nothing. The cooldowns keep the daemon well within the limits either way: at the default 5-minute interval it makes at most 288 lookups a day, and later providers are only asked when earlier ones fail.
+
+Every provider is reached over HTTPS, so the answer is protected in transit. `opendns` uses DNS-over-HTTPS rather than plain DNS because `opendns.com` is not DNSSEC-signed, and OpenDNS generates the `myip.opendns.com` answer itself, so it could never be signed. For the same reason, Google's `o-o.myaddr.l.google.com` is not supported: it only works over plain, unauthenticated DNS.
 
 The default order spans four independent networks, so a single provider or network outage does not stop updates. Networks were identified from response headers and ownership in November 2026, and may change.
 

@@ -10,6 +10,8 @@ import (
 	"net/netip"
 	"strings"
 	"time"
+
+	"golang.org/x/net/dns/dnsmessage"
 )
 
 const (
@@ -21,8 +23,15 @@ const (
 	ipifyURL = "https://api4.ipify.org/"
 	// icanhazipURL is run by Cloudflare.
 	icanhazipURL = "https://icanhazip.com/"
-	akamaiURL    = "https://whatismyip.akamai.com/"
-	ipinfoURL    = "https://ipinfo.io/ip"
+	// opendnsDoHURL asks OpenDNS over DNS-over-HTTPS for the A record of
+	// myip.opendns.com, which it answers with the client's address. The dns
+	// parameter is a fixed RFC 8484 query: ID 0, recursion desired, A IN.
+	opendnsDoHURL   = "https://doh.opendns.com/dns-query?dns=AAABAAABAAAAAAAABG15aXAHb3BlbmRucwNjb20AAAEAAQ"
+	opendnsMyIPName = "myip.opendns.com."
+	// dnsMessageType is the media type of a DNS-over-HTTPS response.
+	dnsMessageType = "application/dns-message"
+	akamaiURL      = "https://whatismyip.akamai.com/"
+	ipinfoURL      = "https://ipinfo.io/ip"
 	// traceIPKey prefixes the client address line in a Cloudflare trace.
 	traceIPKey = "ip="
 	// maxQuotedBodyChars caps how much of an unexpected body is quoted in errors.
@@ -47,6 +56,7 @@ type publicIPLookup struct {
 	client  *http.Client
 	url     string
 	extract func(body string) string
+	accept  string
 }
 
 // Current returns the public IPv4 address in dotted form.
@@ -54,6 +64,9 @@ func (l *publicIPLookup) Current(ctx context.Context) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, l.url, nil)
 	if err != nil {
 		return "", fmt.Errorf("build public IP request: %w", err)
+	}
+	if l.accept != "" {
+		req.Header.Set("Accept", l.accept)
 	}
 	body, err := fetch(l.client, req)
 	if err != nil {
@@ -82,6 +95,7 @@ func traceIP(body string) string {
 type ipProvider struct {
 	url     string
 	extract func(body string) string
+	accept  string
 }
 
 // ipProviders are the services IP_PROVIDERS can name.
@@ -92,6 +106,7 @@ var ipProviders = map[string]ipProvider{
 	"icanhazip":  {url: icanhazipURL, extract: strings.TrimSpace},
 	"akamai":     {url: akamaiURL, extract: strings.TrimSpace},
 	"ipinfo":     {url: ipinfoURL, extract: strings.TrimSpace},
+	"opendns":    {url: opendnsDoHURL, extract: dohIPv4, accept: dnsMessageType},
 }
 
 // newPublicIPSource tries the named providers in order. Each name must be a
@@ -100,7 +115,7 @@ func newPublicIPSource(logger *slog.Logger, client *http.Client, names []string)
 	sources := make([]ipSource, 0, len(names))
 	for _, name := range names {
 		p := ipProviders[name]
-		sources = append(sources, &publicIPLookup{client: client, url: p.url, extract: p.extract})
+		sources = append(sources, &publicIPLookup{client: client, url: p.url, extract: p.extract, accept: p.accept})
 	}
 	return newFallbackLookup(logger, sources...)
 }
@@ -201,4 +216,34 @@ func (f *fallbackLookup) nextRetry(now time.Time) time.Duration {
 		}
 	}
 	return next.Sub(now)
+}
+
+// dohIPv4 reads the A record for myip.opendns.com from a DNS-over-HTTPS
+// response, or returns "" when there is none.
+func dohIPv4(body string) string {
+	var p dnsmessage.Parser
+	hdr, err := p.Start([]byte(body))
+	if err != nil || !hdr.Response || hdr.RCode != dnsmessage.RCodeSuccess {
+		return ""
+	}
+	if err := p.SkipAllQuestions(); err != nil {
+		return ""
+	}
+	for {
+		rh, err := p.AnswerHeader()
+		if err != nil {
+			return ""
+		}
+		if rh.Type != dnsmessage.TypeA || !strings.EqualFold(rh.Name.String(), opendnsMyIPName) {
+			if err := p.SkipAnswer(); err != nil {
+				return ""
+			}
+			continue
+		}
+		a, err := p.AResource()
+		if err != nil {
+			return ""
+		}
+		return netip.AddrFrom4(a.A).String()
+	}
 }
