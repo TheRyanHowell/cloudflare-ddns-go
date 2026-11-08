@@ -49,7 +49,7 @@ docker compose logs -f
 - Only IPv4 is supported. The IP lookup is forced over IPv4.
 - If an IP provider fails, the failure is logged and the next provider in `IP_PROVIDERS` is tried.
 - A provider that fails is skipped for a cooldown: 1 minute after one failure, doubling with each consecutive failure up to 1 hour. One success resets it. A single failure therefore does not drop a provider from the next sync at the default interval. A `Retry-After` header (for example on `429 Too Many Requests`) is honoured, up to 24 hours.
-- If every provider fails in the same sync, no cooldowns start, since the local network is the likely cause; all are tried again at the next sync.
+- If every provider fails in the same sync, no cooldowns start, since the local network is the likely cause; all are tried again at the next sync unless one sent a `Retry-After`.
 - If every provider is cooling down, the sync makes no requests and is retried at the next interval.
 - Temporary failures, such as network errors or Cloudflare `5xx` responses, are logged and retried on the next cycle.
 - Permanent failures make the daemon exit with a non-zero status, so the problem shows up instead of being retried silently. These are a rejected token (`401`/`403`), a missing record (`404`), or a record that is not of type `A`. Compose's `restart: always` then restarts the container.
