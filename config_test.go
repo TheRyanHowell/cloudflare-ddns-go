@@ -16,13 +16,18 @@ func TestHealthAddr(t *testing.T) {
 	}
 }
 
-func TestLoadConfig(t *testing.T) {
-	env := map[string]string{
+// baseEnv returns the required variables, set.
+func baseEnv() map[string]string {
+	return map[string]string{
 		"CLOUDFLARE_API_KEY":     "key",
 		"CLOUDFLARE_ZONE_ID":     "zone",
 		"CLOUDFLARE_RECORD_ID":   "record",
 		"CLOUDFLARE_RECORD_NAME": "home.example.com",
 	}
+}
+
+func TestLoadConfig(t *testing.T) {
+	env := baseEnv()
 	getenv := func(k string) string { return env[k] }
 
 	got, err := loadConfig(getenv)
@@ -77,14 +82,9 @@ func TestLoadConfigTimings(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			env := map[string]string{
-				"CLOUDFLARE_API_KEY":     "key",
-				"CLOUDFLARE_ZONE_ID":     "zone",
-				"CLOUDFLARE_RECORD_ID":   "record",
-				"CLOUDFLARE_RECORD_NAME": "home.example.com",
-				"SYNC_INTERVAL":          tt.interval,
-				"CLOUDFLARE_RECORD_TTL":  tt.ttl,
-			}
+			env := baseEnv()
+			env["SYNC_INTERVAL"] = tt.interval
+			env["CLOUDFLARE_RECORD_TTL"] = tt.ttl
 			got, err := loadConfig(func(k string) string { return env[k] })
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
