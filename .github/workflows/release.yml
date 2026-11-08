@@ -20,6 +20,7 @@ jobs:
           check-latest: true
       - run: go test -race ./...
       - run: make check-platforms
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - uses: golangci/golangci-lint-action@v9
         with:
           version: latest

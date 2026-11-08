@@ -26,12 +26,12 @@ VERSION_STAMP := $(shell git describe --tags --always --dirty 2>/dev/null || ech
 
 IMAGE   := cloudflare-ddns
 BINARY  := cloudflare-ddns
-COMPOSE := DOCKER_DEFAULT_PLATFORM=$(PLATFORM) VERSION=$(VERSION_STAMP) docker compose
+COMPOSE := DOCKER_DEFAULT_PLATFORM=$(PLATFORM) CLOUDFLARE_DDNS_VERSION=$(VERSION_STAMP) docker compose
 
 .PHONY: help build test lint vuln check check-platforms image images run stop logs release clean platform require-platform
 
 help: ## List the targets
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
+	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
 
 platform: require-platform ## Print the detected Docker platform
 	@echo $(PLATFORM)
@@ -74,6 +74,7 @@ logs: ## Follow the daemon's logs
 	docker compose logs -f
 
 release: ## Tag a release locally: make release VERSION=v1.2.3 (does not push)
+	@test "$(origin VERSION)" = "command line" || { echo "pass the version on the command line: make release VERSION=v1.2.3" >&2; exit 1; }
 	@echo "$(VERSION)" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$$' \
 		|| { echo "VERSION must be semver with a v prefix, such as v1.2.3 or v1.3.0-rc.1" >&2; exit 1; }
 	@latest=$$(git tag --list 'v*' | $(SEMVER_SORT) | tail -1); \

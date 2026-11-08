@@ -5,7 +5,7 @@ services:
       context: .
       target: final
       args:
-        VERSION: ${VERSION:-dev}
+        VERSION: ${CLOUDFLARE_DDNS_VERSION:-dev}
     env_file:
       - .env
     restart: always
