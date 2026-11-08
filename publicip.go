@@ -21,7 +21,9 @@ const (
 	// cloudflareTraceURL uses a hostname because the bare 1.1.1.1 host
 	// intermittently returns error 1034.
 	cloudflareTraceURL = "https://api.cloudflare.com/cdn-cgi/trace"
-	amazonCheckIPURL   = "https://checkip.amazonaws.com/"
+	// cloudflareTraceIPURL is tried only when api.cloudflare.com cannot be resolved.
+	cloudflareTraceIPURL = "https://1.1.1.1/cdn-cgi/trace"
+	amazonCheckIPURL     = "https://checkip.amazonaws.com/"
 	// ipifyURL is ipify's IPv4-only host.
 	ipifyURL = "https://api4.ipify.org/"
 	// icanhazipURL is run by Cloudflare.
@@ -64,9 +66,23 @@ type publicIPLookup struct {
 	ipProvider
 }
 
-// Current returns the public IPv4 address in dotted form.
+// Current returns the public IPv4 address in dotted form, retrying at
+// dnsFallbackURL when the main host's name cannot be resolved.
 func (l *publicIPLookup) Current(ctx context.Context) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, l.url, nil)
+	ip, err := l.fetchIP(ctx, l.url)
+	var dnsErr *net.DNSError
+	if err != nil && l.dnsFallbackURL != "" && errors.As(err, &dnsErr) {
+		fallbackIP, fallbackErr := l.fetchIP(ctx, l.dnsFallbackURL)
+		if fallbackErr != nil {
+			return "", errors.Join(err, fallbackErr)
+		}
+		return fallbackIP, nil
+	}
+	return ip, err
+}
+
+func (l *publicIPLookup) fetchIP(ctx context.Context, url string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("build public IP request: %w", err)
 	}
@@ -80,7 +96,7 @@ func (l *publicIPLookup) Current(ctx context.Context) (string, error) {
 	text := l.extract(string(body))
 	addr, err := netip.ParseAddr(text)
 	if err != nil || !addr.Unmap().Is4() {
-		return "", fmt.Errorf("public IP from %s: %.*q is not an IPv4 address", l.url, maxQuotedBodyChars, text)
+		return "", fmt.Errorf("public IP from %s: %.*q is not an IPv4 address", url, maxQuotedBodyChars, text)
 	}
 	return addr.Unmap().String(), nil
 }
@@ -98,9 +114,10 @@ func traceIP(body string) string {
 
 // ipProvider is a public IP service and how to read its response.
 type ipProvider struct {
-	url     string
-	extract func(body string) string
-	accept  string
+	url            string
+	dnsFallbackURL string
+	extract        func(body string) string
+	accept         string
 }
 
 // namedProvider is an ipProvider and the name IP_PROVIDERS uses for it.
@@ -111,7 +128,7 @@ type namedProvider struct {
 
 // ipProviders are the services IP_PROVIDERS can name, in the default order.
 var ipProviders = []namedProvider{
-	{"cloudflare", ipProvider{url: cloudflareTraceURL, extract: traceIP}},
+	{"cloudflare", ipProvider{url: cloudflareTraceURL, dnsFallbackURL: cloudflareTraceIPURL, extract: traceIP}},
 	{"amazon", ipProvider{url: amazonCheckIPURL, extract: strings.TrimSpace}},
 	{"akamai", ipProvider{url: akamaiURL, extract: strings.TrimSpace}},
 	{"opendns", ipProvider{url: opendnsDoHURL, extract: dohIPv4, accept: dnsMessageType}},

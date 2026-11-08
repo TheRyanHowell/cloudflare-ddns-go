@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -539,5 +540,57 @@ func TestJSONIP(t *testing.T) {
 		if got := jsonIP(tt.path...)(tt.body); got != tt.want {
 			t.Errorf("jsonIP(%q)(%s) = %q, want %q", tt.path, tt.body, got, tt.want)
 		}
+	}
+}
+
+// dnsTestClient fails DNS for host "dns-fails.test" and sends every other
+// connection to srv.
+func dnsTestClient(srv *httptest.Server) *http.Client {
+	dialer := &net.Dialer{}
+	return &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if host, _, _ := net.SplitHostPort(addr); host == "dns-fails.test" {
+				return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+			}
+			return dialer.DialContext(ctx, network, srv.Listener.Addr().String())
+		},
+	}}
+}
+
+func TestPublicIPLookupDNSFallback(t *testing.T) {
+	tests := []struct {
+		name        string
+		primary     string
+		status      int
+		wantIP      string
+		wantErr     bool
+		wantFetches int
+	}{
+		{name: "dns failure uses fallback", primary: "http://dns-fails.test/", status: http.StatusOK, wantIP: "9.8.7.6", wantFetches: 1},
+		{name: "http error does not", primary: "http://reachable.test/", status: http.StatusForbidden, wantErr: true, wantFetches: 1},
+		{name: "fallback failure is reported", primary: "http://dns-fails.test/", status: http.StatusBadGateway, wantErr: true, wantFetches: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fetches := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				fetches++
+				w.WriteHeader(tt.status)
+				io.WriteString(w, "9.8.7.6")
+			}))
+			defer srv.Close()
+
+			l := &publicIPLookup{client: dnsTestClient(srv), ipProvider: ipProvider{url: tt.primary, dnsFallbackURL: "http://fallback.test/", extract: strings.TrimSpace}}
+			got, err := l.Current(context.Background())
+			if got != tt.wantIP || (err != nil) != tt.wantErr || fetches != tt.wantFetches {
+				t.Errorf("Current() = %q, %v with %d fetches; want %q, error %v, %d fetches", got, err, fetches, tt.wantIP, tt.wantErr, tt.wantFetches)
+			}
+		})
+	}
+}
+
+func TestCloudflareProviderFallsBackToIPLiteral(t *testing.T) {
+	if got, want := mustProvider(t, "cloudflare").dnsFallbackURL, "https://1.1.1.1/cdn-cgi/trace"; got != want {
+		t.Errorf("cloudflare dnsFallbackURL = %q, want %q", got, want)
 	}
 }

@@ -58,7 +58,7 @@ docker compose logs -f
 
 | Name | Endpoint | Network | Notes |
 |---|---|---|---|
-| `cloudflare` | `https://api.cloudflare.com/cdn-cgi/trace` | Cloudflare (AS13335) | |
+| `cloudflare` | `https://api.cloudflare.com/cdn-cgi/trace` | Cloudflare (AS13335) | Falls back to `https://1.1.1.1/cdn-cgi/trace` if the hostname cannot be resolved |
 | `amazon` | `https://checkip.amazonaws.com/` | AWS (AS16509) | |
 | `akamai` | `https://whatismyip.akamai.com/` | Akamai (AS20940) | |
 | `opendns` | `https://doh.opendns.com/dns-query` | Cisco OpenDNS (AS36692) | Asks for `myip.opendns.com` over DNS-over-HTTPS |
