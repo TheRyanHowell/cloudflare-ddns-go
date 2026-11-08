@@ -49,7 +49,7 @@ func fetch(client *http.Client, req *http.Request) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // nothing useful to do on failure
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {

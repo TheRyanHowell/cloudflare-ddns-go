@@ -1,11 +1,7 @@
 version: "2"
 
 linters:
-  settings:
-    errcheck:
-      # Errors from closing a fully read response body or writing a response
-      # cannot be acted on.
-      exclude-functions:
-        - (io.Closer).Close
-        - io.WriteString
-        - fmt.Fprintln
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [errcheck]

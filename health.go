@@ -51,7 +51,7 @@ func (h *health) handler(staleAfter time.Duration) http.Handler {
 		case age > staleAfter:
 			http.Error(w, fmt.Sprintf("last successful sync %s ago", age.Round(time.Second)), http.StatusServiceUnavailable)
 		default:
-			fmt.Fprintln(w, "ok")
+			fmt.Fprintln(w, "ok") //nolint:errcheck // nothing useful to do on failure
 		}
 	})
 }
@@ -121,7 +121,7 @@ func probeHealth(ctx context.Context, client *http.Client, url string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // nothing useful to do on failure
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unhealthy: %s", resp.Status)
 	}
