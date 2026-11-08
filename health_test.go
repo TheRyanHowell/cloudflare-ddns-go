@@ -95,7 +95,11 @@ func TestServeHealthListenError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	t.Cleanup(func() {
+		if err := ln.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 
 	srv := newHealthServer(ln.Addr().String(), http.NotFoundHandler())
 	if err := serveHealth(context.Background(), srv); err == nil {
