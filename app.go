@@ -74,7 +74,5 @@ func runHealthcheck(ctx context.Context, addr string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
-	defer cancel()
 	return probeHealth(ctx, newProbeClient(requestTimeout), url)
 }
