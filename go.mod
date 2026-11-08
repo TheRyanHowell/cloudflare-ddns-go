@@ -1,3 +1,3 @@
 module cloudflare-ddns-go
 
-go 1.21
+go 1.27
