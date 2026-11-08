@@ -44,7 +44,7 @@ func TestHealthMarkSuccess(t *testing.T) {
 	if _, ok := h.age(); ok {
 		t.Fatal("age reported before any success")
 	}
-	h.markSuccess()
+	h.MarkSuccess()
 	if age, ok := h.age(); !ok || age > time.Minute {
 		t.Errorf("age() = %v, %v", age, ok)
 	}
@@ -160,8 +160,8 @@ func TestProbeClientIgnoresProxyEnv(t *testing.T) {
 
 func TestHealthReportsPermanentFailure(t *testing.T) {
 	h := newHealth()
-	h.markSuccess()
-	h.markPermanentFailure(errFake)
+	h.MarkSuccess()
+	h.MarkPermanentFailure(errFake)
 
 	rec := httptest.NewRecorder()
 	h.handler(time.Hour).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, healthPath, nil))

@@ -1,4 +1,4 @@
-package main
+package ddns
 
 import (
 	"bytes"
@@ -7,9 +7,11 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/TheRyanHowell/cloudflare-ddns-go/cloudflare"
 	"github.com/TheRyanHowell/cloudflare-ddns-go/internal/fetch"
 )
 
@@ -62,15 +64,40 @@ func (f *fakeLookup) Current(context.Context) (string, error) {
 	return ip, f.err
 }
 
-func newTestSyncer(record *fakeRecord, lookup *fakeLookup) *syncer {
-	return &syncer{
-		logger:            discardLogger(),
-		record:            record,
-		lookup:            lookup,
-		health:            newHealth(),
-		interval:          time.Millisecond,
-		startupRetryDelay: time.Millisecond,
-	}
+// fakeHealth records what the syncer reports.
+type fakeHealth struct {
+	mu        sync.Mutex
+	successes int
+	failure   error
+}
+
+func (f *fakeHealth) MarkSuccess() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.successes++
+}
+
+func (f *fakeHealth) MarkPermanentFailure(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failure = err
+}
+
+func (f *fakeHealth) state() (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.successes, f.failure
+}
+
+func newTestSyncer(record *fakeRecord, lookup *fakeLookup) *Syncer {
+	return New(record, lookup,
+		WithLogger(discardLogger()),
+		WithHealthReporter(&fakeHealth{}),
+		WithPermanentCheck(cloudflare.IsPermanent),
+		WithInterval(time.Millisecond),
+		WithStartupRetryDelay(time.Millisecond),
+		WithExitDelay(0),
+	)
 }
 
 func TestSyncerSync(t *testing.T) {
@@ -90,9 +117,9 @@ func TestSyncerSync(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := newTestSyncer(tt.record, tt.lookup).sync(context.Background(), tt.known)
+			got, err := newTestSyncer(tt.record, tt.lookup).syncFrom(context.Background(), tt.known)
 			if got != tt.want || (err != nil) != tt.wantErr {
-				t.Errorf("sync() = %q, %v; want %q, wantErr %v", got, err, tt.want, tt.wantErr)
+				t.Errorf("syncFrom() = %q, %v; want %q, wantErr %v", got, err, tt.want, tt.wantErr)
 			}
 			if !slices.Equal(tt.record.updates, tt.wantUpdates) {
 				t.Errorf("updates = %v, want %v", tt.record.updates, tt.wantUpdates)
@@ -104,9 +131,9 @@ func TestSyncerSync(t *testing.T) {
 func TestRunPermanentStartupFailureIsFatal(t *testing.T) {
 	denied := &fetch.StatusError{Code: 403, Status: "403 Forbidden"}
 	record := &fakeRecord{contentErrs: []error{denied, denied}}
-	err := newTestSyncer(record, &fakeLookup{}).run(context.Background())
+	err := newTestSyncer(record, &fakeLookup{}).Run(context.Background())
 	if !errors.Is(err, denied) {
-		t.Errorf("run() = %v, want %v", err, denied)
+		t.Errorf("Run() = %v, want %v", err, denied)
 	}
 	if len(record.contentErrs) != 1 {
 		t.Errorf("Content called %d times, want 1", 2-len(record.contentErrs))
@@ -119,13 +146,13 @@ func TestRunRetriesTransientStartupFailure(t *testing.T) {
 	record := &fakeRecord{content: "1.1.1.1", contentErrs: []error{errFake, errFake}}
 	s := newTestSyncer(record, &fakeLookup{ips: []string{"1.1.1.1"}, cancel: cancel})
 
-	if err := s.run(ctx); err != nil {
-		t.Fatalf("run() = %v", err)
+	if err := s.Run(ctx); err != nil {
+		t.Fatalf("Run() = %v", err)
 	}
 	if len(record.contentErrs) != 0 {
 		t.Errorf("transient failures not retried: %d left", len(record.contentErrs))
 	}
-	if _, ok := s.health.age(); !ok {
+	if successes, _ := s.health.(*fakeHealth).state(); successes == 0 {
 		t.Error("health not marked after successful startup")
 	}
 }
@@ -139,8 +166,8 @@ func TestRunSyncsImmediatelyAndRetriesAfterFailedUpdate(t *testing.T) {
 	var logs bytes.Buffer
 	s.logger = slog.New(slog.NewTextHandler(&logs, nil))
 
-	if err := s.run(ctx); err != nil {
-		t.Fatalf("run() = %v", err)
+	if err := s.Run(ctx); err != nil {
+		t.Fatalf("Run() = %v", err)
 	}
 	want := []string{"2.2.2.2", "2.2.2.2"}
 	if !slices.Equal(record.updates, want) {
@@ -160,8 +187,8 @@ func TestRunCancelled(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
-			if err := newTestSyncer(record, &fakeLookup{}).run(ctx); err != nil {
-				t.Errorf("run() = %v, want nil", err)
+			if err := newTestSyncer(record, &fakeLookup{}).Run(ctx); err != nil {
+				t.Errorf("Run() = %v, want nil", err)
 			}
 		})
 	}
@@ -170,9 +197,9 @@ func TestRunCancelled(t *testing.T) {
 func TestRunPermanentUpdateFailureIsFatal(t *testing.T) {
 	revoked := &fetch.StatusError{Code: 401, Status: "401 Unauthorized"}
 	record := &fakeRecord{content: "1.1.1.1", updateErrs: []error{revoked}}
-	err := newTestSyncer(record, &fakeLookup{ips: []string{"2.2.2.2"}}).run(context.Background())
+	err := newTestSyncer(record, &fakeLookup{ips: []string{"2.2.2.2"}}).Run(context.Background())
 	if !errors.Is(err, errPermanentSync) || !errors.Is(err, revoked) {
-		t.Errorf("run() = %v, want permanent sync failure wrapping %v", err, revoked)
+		t.Errorf("Run() = %v, want permanent sync failure wrapping %v", err, revoked)
 	}
 }
 
@@ -183,8 +210,8 @@ func TestRunLookupStatusErrorIsNotFatal(t *testing.T) {
 	lookup := &fakeLookup{ips: []string{"2.2.2.2"}, err: forbidden, cancel: cancel}
 	record := &fakeRecord{content: "1.1.1.1"}
 	// The IP service answering 403 is transient from the daemon's view.
-	if err := newTestSyncer(record, lookup).run(ctx); err != nil {
-		t.Errorf("run() = %v, want nil", err)
+	if err := newTestSyncer(record, lookup).Run(ctx); err != nil {
+		t.Errorf("Run() = %v, want nil", err)
 	}
 }
 
@@ -196,23 +223,63 @@ func TestSyncerWaitsBeforeExitingOnPermanentFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- s.run(ctx) }()
+	go func() { done <- s.Run(ctx) }()
 
 	select {
 	case err := <-done:
-		t.Fatalf("run returned %v at once; want it to wait before exiting", err)
+		t.Fatalf("Run returned %v at once; want it to wait before exiting", err)
 	case <-time.After(50 * time.Millisecond):
 	}
-	if age, ok := s.health.age(); ok || s.health.failure() == nil {
-		t.Errorf("health age = %v, %v, failure %v; want a recorded permanent failure", age, ok, s.health.failure())
+	if successes, failure := s.health.(*fakeHealth).state(); successes != 0 || failure == nil {
+		t.Errorf("health successes = %d, failure %v; want a recorded permanent failure", successes, failure)
 	}
 	cancel()
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Errorf("run() = %v after shutdown, want nil", err)
+			t.Errorf("Run() = %v after shutdown, want nil", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("run did not stop when cancelled during the wait")
+		t.Fatal("Run did not stop when cancelled during the wait")
 	}
+}
+
+func TestSyncerSyncReadsThenUpdates(t *testing.T) {
+	tests := []struct {
+		name        string
+		record      *fakeRecord
+		lookup      *fakeLookup
+		wantIP      string
+		wantChanged bool
+		wantErr     bool
+		wantUpdates []string
+	}{
+		{name: "unchanged", record: &fakeRecord{content: "4.4.4.4"}, lookup: &fakeLookup{ips: []string{"4.4.4.4"}}, wantIP: "4.4.4.4"},
+		{name: "changed", record: &fakeRecord{content: "1.1.1.1"}, lookup: &fakeLookup{ips: []string{"4.4.4.4"}}, wantIP: "4.4.4.4", wantChanged: true, wantUpdates: []string{"4.4.4.4"}},
+		{name: "read fails", record: &fakeRecord{contentErrs: []error{errFake}}, lookup: &fakeLookup{ips: []string{"4.4.4.4"}}, wantErr: true},
+		{name: "update fails", record: &fakeRecord{content: "1.1.1.1", updateErrs: []error{errFake}}, lookup: &fakeLookup{ips: []string{"4.4.4.4"}}, wantErr: true, wantUpdates: []string{"4.4.4.4"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ip, changed, err := newTestSyncer(tt.record, tt.lookup).Sync(context.Background())
+			if ip != tt.wantIP || changed != tt.wantChanged || (err != nil) != tt.wantErr {
+				t.Errorf("Sync() = %q, %v, %v; want %q, %v, error %v", ip, changed, err, tt.wantIP, tt.wantChanged, tt.wantErr)
+			}
+			if !slices.Equal(tt.record.updates, tt.wantUpdates) {
+				t.Errorf("updates = %v, want %v", tt.record.updates, tt.wantUpdates)
+			}
+		})
+	}
+}
+
+func TestNewDefaults(t *testing.T) {
+	s := New(&fakeRecord{}, &fakeLookup{})
+	if s.interval != defaultInterval || s.startupRetryDelay != defaultStartupRetryDelay || s.exitDelay != defaultExitDelay || s.logger == nil {
+		t.Errorf("New() = %+v, want the default timings and a logger", s)
+	}
+	if s.isPermanent(errFake) {
+		t.Error("default permanent check classified an error as permanent")
+	}
+	s.health.MarkSuccess()
+	s.health.MarkPermanentFailure(errFake)
 }

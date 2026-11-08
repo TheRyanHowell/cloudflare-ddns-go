@@ -3,14 +3,60 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/TheRyanHowell/cloudflare-ddns-go/cloudflare"
+	"github.com/TheRyanHowell/cloudflare-ddns-go/ddns"
 	"github.com/TheRyanHowell/cloudflare-ddns-go/internal/fetch"
 )
+
+var errFake = errors.New("fake failure")
+
+func discardLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
+
+// fakeRecord fails Content with contentErrs, one per call, then returns content.
+type fakeRecord struct {
+	content     string
+	contentErrs []error
+}
+
+func (f *fakeRecord) Content(context.Context) (string, error) {
+	if len(f.contentErrs) == 0 {
+		return f.content, nil
+	}
+	err := f.contentErrs[0]
+	f.contentErrs = f.contentErrs[1:]
+	return "", err
+}
+
+func (f *fakeRecord) Update(context.Context, string) error { return nil }
+
+// fakeLookup returns ips in order, then errFake.
+type fakeLookup struct{ ips []string }
+
+func (f *fakeLookup) Current(context.Context) (string, error) {
+	if len(f.ips) == 0 {
+		return "", errFake
+	}
+	ip := f.ips[0]
+	f.ips = f.ips[1:]
+	return ip, nil
+}
+
+func newTestSyncer(record *fakeRecord, lookup *fakeLookup) *ddns.Syncer {
+	return ddns.New(record, lookup,
+		ddns.WithLogger(discardLogger()),
+		ddns.WithPermanentCheck(cloudflare.IsPermanent),
+		ddns.WithInterval(time.Millisecond),
+		ddns.WithStartupRetryDelay(time.Millisecond),
+		ddns.WithExitDelay(0),
+	)
+}
 
 func envFunc(env map[string]string) func(string) string {
 	return func(k string) string { return env[k] }

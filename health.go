@@ -26,7 +26,7 @@ type health struct {
 
 func newHealth() *health { return &health{now: time.Now} }
 
-func (h *health) markSuccess() {
+func (h *health) MarkSuccess() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.lastSuccess = h.now()
@@ -132,8 +132,8 @@ func probeHealth(ctx context.Context, client *http.Client, url string) error {
 	return nil
 }
 
-// markPermanentFailure makes the health check fail from now on.
-func (h *health) markPermanentFailure(err error) {
+// MarkPermanentFailure makes the health check fail from now on.
+func (h *health) MarkPermanentFailure(err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.permanent = err

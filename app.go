@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/TheRyanHowell/cloudflare-ddns-go/cloudflare"
+	"github.com/TheRyanHowell/cloudflare-ddns-go/ddns"
 	"github.com/TheRyanHowell/cloudflare-ddns-go/publicip"
 	"golang.org/x/sync/errgroup"
 )
@@ -43,15 +44,14 @@ func run(ctx context.Context, logger *slog.Logger, args []string, getenv func(st
 		return fmt.Errorf("public IP lookup: %w", err)
 	}
 	state := newHealth()
-	s := &syncer{
-		logger:            logger,
-		record:            newRecord(cfg),
-		lookup:            lookup,
-		health:            state,
-		interval:          cfg.interval,
-		startupRetryDelay: startupRetryDelay,
-		exitDelay:         permanentFailureExitDelay,
-	}
+	s := ddns.New(newRecord(cfg), lookup,
+		ddns.WithLogger(logger),
+		ddns.WithHealthReporter(state),
+		ddns.WithPermanentCheck(cloudflare.IsPermanent),
+		ddns.WithInterval(cfg.interval),
+		ddns.WithStartupRetryDelay(startupRetryDelay),
+		ddns.WithExitDelay(permanentFailureExitDelay),
+	)
 
 	srv := newHealthServer(addr, state.handler(healthStaleAfter(cfg.interval, len(cfg.providers))))
 	return runAll(ctx, srv, s)
@@ -77,7 +77,7 @@ func healthStaleAfter(interval time.Duration, providers int) time.Duration {
 
 // runAll runs the health server and the syncer until either stops or ctx is
 // cancelled, and returns the first error.
-func runAll(ctx context.Context, srv *http.Server, s *syncer) error {
+func runAll(ctx context.Context, srv *http.Server, s *ddns.Syncer) error {
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
 		if err := serveHealth(ctx, srv); err != nil {
@@ -85,7 +85,7 @@ func runAll(ctx context.Context, srv *http.Server, s *syncer) error {
 		}
 		return nil
 	})
-	g.Go(func() error { return s.run(ctx) })
+	g.Go(func() error { return s.Run(ctx) })
 	return g.Wait()
 }
 
