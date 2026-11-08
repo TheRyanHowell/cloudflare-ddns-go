@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -207,13 +208,8 @@ func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 
 // nextRetry returns how long until the first source's cooldown ends.
 func (f *fallbackLookup) nextRetry(now time.Time) time.Duration {
-	next := f.sources[0].until
-	for _, ts := range f.sources[1:] {
-		if ts.until.Before(next) {
-			next = ts.until
-		}
-	}
-	return next.Sub(now)
+	first := slices.MinFunc(f.sources, func(a, b *trackedSource) int { return a.until.Compare(b.until) })
+	return first.until.Sub(now)
 }
 
 // dohIPv4 reads the A record for myip.opendns.com from a DNS-over-HTTPS
