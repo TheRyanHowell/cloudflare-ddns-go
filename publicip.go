@@ -21,6 +21,8 @@ const (
 	ipifyURL = "https://api4.ipify.org/"
 	// icanhazipURL is run by Cloudflare.
 	icanhazipURL = "https://icanhazip.com/"
+	akamaiURL    = "https://whatismyip.akamai.com/"
+	ipinfoURL    = "https://ipinfo.io/ip"
 	// traceIPKey prefixes the client address line in a Cloudflare trace.
 	traceIPKey = "ip="
 	// maxQuotedBodyChars caps how much of an unexpected body is quoted in errors.
@@ -88,6 +90,8 @@ var ipProviders = map[string]ipProvider{
 	"amazon":     {url: amazonCheckIPURL, extract: strings.TrimSpace},
 	"ipify":      {url: ipifyURL, extract: strings.TrimSpace},
 	"icanhazip":  {url: icanhazipURL, extract: strings.TrimSpace},
+	"akamai":     {url: akamaiURL, extract: strings.TrimSpace},
+	"ipinfo":     {url: ipinfoURL, extract: strings.TrimSpace},
 }
 
 // newPublicIPSource tries primary, then fallback. Both must be keys of ipProviders.

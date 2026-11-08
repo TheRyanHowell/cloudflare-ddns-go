@@ -60,8 +60,10 @@ docker compose logs -f
 | `amazon` | `https://checkip.amazonaws.com/` | Default fallback. Runs on AWS, so it does not depend on Cloudflare |
 | `ipify` | `https://api4.ipify.org/` | Served through Cloudflare |
 | `icanhazip` | `https://icanhazip.com/` | Run by Cloudflare |
+| `akamai` | `https://whatismyip.akamai.com/` | Runs on Akamai's network, independent of Cloudflare and AWS |
+| `ipinfo` | `https://ipinfo.io/ip` | Hosted on Google Cloud |
 
-For the fallback to survive a Cloudflare outage, pair one Cloudflare-backed provider with `amazon`.
+For the fallback to survive a Cloudflare outage, pair a Cloudflare-backed provider with `amazon`, `akamai` or `ipinfo`.
 
 ## Health check
 

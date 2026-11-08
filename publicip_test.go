@@ -176,6 +176,8 @@ func TestIPProvidersParseTheirFormat(t *testing.T) {
 		"amazon":     "9.8.7.6\n",
 		"ipify":      "9.8.7.6",
 		"icanhazip":  "9.8.7.6\n",
+		"akamai":     "9.8.7.6",
+		"ipinfo":     "9.8.7.6",
 	}
 	if len(bodies) != len(ipProviders) {
 		t.Fatalf("test covers %d providers, want all %d", len(bodies), len(ipProviders))
