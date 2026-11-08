@@ -226,11 +226,14 @@ func TestSyncerWaitsBeforeExitingOnPermanentFailure(t *testing.T) {
 		t.Fatalf("run returned %v at once; want it to wait before exiting", err)
 	case <-time.After(50 * time.Millisecond):
 	}
+	if age, ok := s.health.age(); ok || s.health.failure() == nil {
+		t.Errorf("health age = %v, %v, failure %v; want a recorded permanent failure", age, ok, s.health.failure())
+	}
 	cancel()
 	select {
 	case err := <-done:
-		if !errors.Is(err, denied) {
-			t.Errorf("run() = %v, want %v", err, denied)
+		if err != nil {
+			t.Errorf("run() = %v after shutdown, want nil", err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("run did not stop when cancelled during the wait")

@@ -657,3 +657,40 @@ func TestFallbackLookupChargesUnreachableProvidersOnceAnotherAnswers(t *testing.
 		t.Errorf("calls = %d, %d, %d; want each asked once", a.calls, b.calls, c.calls)
 	}
 }
+
+func TestFallbackLookupDoesNotStopEarlyWithoutUntriedProviders(t *testing.T) {
+	// With only three providers, a stop would skip all of them next sync.
+	now := testEpoch
+	a, b, c := &stubSource{errs: []error{errUnreachable}, ip: "1.1.1.1"}, &stubSource{err: errUnreachable}, &stubSource{err: errUnreachable}
+	f := newTestFallback(&now, a, b, c)
+	if _, err := f.Current(context.Background()); err == nil {
+		t.Fatal("expected error")
+	}
+	now = now.Add(testInterval)
+	if got, err := f.Current(context.Background()); err != nil || got != "1.1.1.1" {
+		t.Errorf("Current() = %q, %v; want all retried at the next sync", got, err)
+	}
+}
+
+func TestFallbackLookupClearsUnreachableMarkWhenRetried(t *testing.T) {
+	// a is skipped after an early stop, then retried during a total outage.
+	// Once b answers later, a must not be charged for the stale skip.
+	now := testEpoch
+	a := &stubSource{err: errUnreachable}
+	x := &stubSource{errs: []error{errUnreachable, errFake}}
+	y := &stubSource{err: errUnreachable}
+	b := &stubSource{errs: []error{errUnreachable}, ip: "2.2.2.2"}
+	f := newTestFallback(&now, a, x, y, b)
+
+	if _, err := f.Current(context.Background()); err == nil { // a, x, y stop early
+		t.Fatal("expected error")
+	}
+	// x's answered error breaks the run, so every source fails without a stop.
+	now = now.Add(2 * testInterval)
+	if _, err := f.Current(context.Background()); err == nil {
+		t.Fatal("expected error")
+	}
+	if f.sources[0].unreachable != nil {
+		t.Errorf("a's unreachable mark = %v after it was retried, want cleared", f.sources[0].unreachable)
+	}
+}

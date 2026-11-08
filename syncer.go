@@ -44,12 +44,16 @@ func (s *syncer) run(ctx context.Context) error {
 	if err == nil {
 		return nil
 	}
+	s.health.markPermanentFailure(err)
 	s.logger.Error("permanent failure, exiting after a delay", "error", err, "exit_in", s.exitDelay)
+	timer := time.NewTimer(s.exitDelay)
+	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-	case <-time.After(s.exitDelay):
+		return nil
+	case <-timer.C:
+		return err
 	}
-	return err
 }
 
 func (s *syncer) loop(ctx context.Context) error {

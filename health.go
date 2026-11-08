@@ -20,6 +20,7 @@ const (
 type health struct {
 	mu          sync.Mutex
 	lastSuccess time.Time
+	permanent   error
 	now         func() time.Time
 }
 
@@ -45,7 +46,10 @@ func (h *health) age() (time.Duration, bool) {
 func (h *health) handler(staleAfter time.Duration) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		age, ok := h.age()
+		failure := h.failure()
 		switch {
+		case failure != nil:
+			http.Error(w, "permanent failure: "+failure.Error(), http.StatusServiceUnavailable)
 		case !ok:
 			http.Error(w, "no successful sync yet", http.StatusServiceUnavailable)
 		case age > staleAfter:
@@ -126,4 +130,17 @@ func probeHealth(ctx context.Context, client *http.Client, url string) error {
 		return fmt.Errorf("unhealthy: %s", resp.Status)
 	}
 	return nil
+}
+
+// markPermanentFailure makes the health check fail from now on.
+func (h *health) markPermanentFailure(err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.permanent = err
+}
+
+func (h *health) failure() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.permanent
 }

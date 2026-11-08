@@ -157,3 +157,15 @@ func TestProbeClientIgnoresProxyEnv(t *testing.T) {
 		t.Error("probe client must not use a proxy")
 	}
 }
+
+func TestHealthReportsPermanentFailure(t *testing.T) {
+	h := newHealth()
+	h.markSuccess()
+	h.markPermanentFailure(errFake)
+
+	rec := httptest.NewRecorder()
+	h.handler(time.Hour).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, healthPath, nil))
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "fake failure") {
+		t.Errorf("status %d body %q; want 503 naming the failure despite a recent success", rec.Code, rec.Body.String())
+	}
+}

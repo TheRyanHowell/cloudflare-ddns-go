@@ -267,17 +267,13 @@ func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 	now := f.now()
 	var failures []sourceFailure
 	unreachable := 0
-	for _, ts := range f.sources {
+	for i, ts := range f.sources {
 		if now.Before(ts.until) {
 			continue
 		}
 		ip, err := ts.src.Current(ctx)
 		if err == nil {
-			for _, sf := range failures {
-				f.settle(sf, now, true)
-			}
-			ts.reset()
-			f.chargeUnreachable(now)
+			f.succeeded(ts, now, failures)
 			return ip, nil
 		}
 		if ctx.Err() != nil {
@@ -288,27 +284,48 @@ func (f *fallbackLookup) Current(ctx context.Context) (string, error) {
 			unreachable = 0
 			continue
 		}
-		if unreachable++; unreachable == maxUnreachablePerLookup {
-			for _, sf := range failures[len(failures)-unreachable:] {
-				sf.ts.skipOneSync(now, f.interval, sf.err)
-			}
-			break
+		if unreachable++; unreachable == maxUnreachablePerLookup && f.untriedAfter(i, now) {
+			return "", f.failed(now, failures, failures[len(failures)-unreachable:])
 		}
 	}
+	return "", f.failed(now, failures, nil)
+}
+
+// succeeded settles a lookup that ts answered.
+func (f *fallbackLookup) succeeded(ts *trackedSource, now time.Time, failures []sourceFailure) {
+	for _, sf := range failures {
+		f.settle(sf, now, true)
+	}
+	ts.reset()
+	f.chargeUnreachable(now)
+}
+
+// failed settles a lookup that no source answered. skipped are the unreachable
+// sources a stop leaves out of the next sync.
+func (f *fallbackLookup) failed(now time.Time, failures, skipped []sourceFailure) error {
 	if len(failures) == 0 {
-		return "", fmt.Errorf("%w; next retry in %s", errProvidersCoolingDown, f.nextRetry(now).Round(time.Second))
+		return fmt.Errorf("%w; next retry in %s", errProvidersCoolingDown, f.nextRetry(now).Round(time.Second))
 	}
 	errs := make([]error, len(failures))
 	for i, sf := range failures {
 		errs[i] = sf.err
 		f.settle(sf, now, !isTransportError(sf.err))
 	}
-	return "", errors.Join(errs...)
+	for _, sf := range skipped {
+		sf.ts.skipOneSync(now, f.interval, sf.err)
+	}
+	return errors.Join(errs...)
+}
+
+// untriedAfter reports whether a source after index i is not cooling down.
+func (f *fallbackLookup) untriedAfter(i int, now time.Time) bool {
+	return slices.ContainsFunc(f.sources[i+1:], func(ts *trackedSource) bool { return !now.Before(ts.until) })
 }
 
 // settle logs a failure and, when charge is true, starts its cooldown.
 func (f *fallbackLookup) settle(sf sourceFailure, now time.Time, charge bool) {
 	if !charge {
+		sf.ts.unreachable = nil
 		f.logger.Warn("public IP source failed", "error", sf.err)
 		return
 	}
