@@ -73,9 +73,8 @@ func fetch(client *http.Client, req *http.Request) ([]byte, error) {
 	defer resp.Body.Close() //nolint:errcheck // nothing useful to do on failure
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
-	if err != nil {
-		return nil, &transportError{err: err}
-	}
+	// An error status is kept even if its body was cut short, so its
+	// Retry-After still applies.
 	if resp.StatusCode != http.StatusOK {
 		return nil, &statusError{
 			code:       resp.StatusCode,
@@ -83,6 +82,9 @@ func fetch(client *http.Client, req *http.Request) ([]byte, error) {
 			body:       snippet(body),
 			retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()),
 		}
+	}
+	if err != nil {
+		return nil, &transportError{err: err}
 	}
 	if len(body) > maxResponseBytes {
 		return nil, fmt.Errorf("response exceeds %d bytes", maxResponseBytes)

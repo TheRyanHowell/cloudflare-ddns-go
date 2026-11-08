@@ -578,6 +578,7 @@ func TestPublicIPLookupDNSFallback(t *testing.T) {
 		{name: "dns failure uses fallback", primary: "http://dns-fails.test/", status: http.StatusOK, wantIP: "9.8.7.6", wantFetches: 1},
 		{name: "http error does not", primary: "http://reachable.test/", status: http.StatusForbidden, wantErr: true, wantFetches: 1},
 		{name: "fallback failure is reported", primary: "http://dns-fails.test/", status: http.StatusForbidden, wantErr: true, wantFetches: 1},
+		{name: "fallback server error is reported", primary: "http://dns-fails.test/", status: http.StatusBadGateway, wantErr: true, wantFetches: 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

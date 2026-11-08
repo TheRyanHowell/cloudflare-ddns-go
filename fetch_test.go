@@ -93,3 +93,20 @@ func TestFetchStatusErrorCarriesRetryAfter(t *testing.T) {
 		t.Errorf("err = %#v, want statusError with retryAfter 2m", err)
 	}
 }
+
+func TestFetchKeepsStatusWhenErrorBodyIsCutShort(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "3600")
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusTooManyRequests)
+		io.WriteString(w, "slow down")
+	}))
+	defer srv.Close()
+	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+
+	_, err := fetch(srv.Client(), req)
+	var se *statusError
+	if !errors.As(err, &se) || se.retryAfter != time.Hour || isTransportError(err) {
+		t.Errorf("err = %#v, want a statusError with retryAfter 1h and no transport marker", err)
+	}
+}
