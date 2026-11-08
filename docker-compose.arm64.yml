@@ -1,5 +1,0 @@
-# 64-bit ARM, e.g. Raspberry Pi 3, 4 or 5 on a 64-bit OS.
-# Use with: docker compose -f docker-compose.yml -f docker-compose.arm64.yml up -d
-services:
-  app:
-    platform: linux/arm64
