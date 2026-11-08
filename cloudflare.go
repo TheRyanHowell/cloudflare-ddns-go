@@ -79,7 +79,7 @@ func (r *cloudflareRecord) Content(ctx context.Context) (string, error) {
 	}
 	// Update writes recordName, so a record ID for another name would be renamed.
 	if !recordNameMatches(resp.Result.Name, r.cfg.recordName) {
-		return "", fmt.Errorf("%w: name %q, want %q", errInvalidRecord, resp.Result.Name, r.cfg.recordName)
+		return "", fmt.Errorf("%w: name %q, want %q (use the record's full name)", errInvalidRecord, resp.Result.Name, r.cfg.recordName)
 	}
 	return resp.Result.Content, nil
 }
@@ -106,23 +106,11 @@ func (r *cloudflareRecord) Update(ctx context.Context, ip string) error {
 	return nil
 }
 
-// apexName is how Cloudflare lets a record name refer to the zone apex.
-const apexName = "@"
-
 // recordNameMatches reports whether the record Cloudflare returned, always a
-// full ASCII name, is the one configured. The configured name may be full,
-// relative to the zone, the apex "@", or Unicode, as Cloudflare accepts all
-// of these. The zone name is not known here, so "@" cannot be checked.
+// full ASCII name, is the configured one, compared exactly after normalising.
 func recordNameMatches(returned, configured string) bool {
-	r, c := normalizeDNSName(returned), normalizeDNSName(configured)
-	switch {
-	case r == "":
-		return false
-	case c == apexName, r == c:
-		return true
-	default:
-		return strings.HasPrefix(r, c+".")
-	}
+	r := normalizeDNSName(returned)
+	return r != "" && r == normalizeDNSName(configured)
 }
 
 // normalizeDNSName lowercases name, drops a trailing dot and converts

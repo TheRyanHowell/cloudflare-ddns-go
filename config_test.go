@@ -139,3 +139,13 @@ func TestLoadConfigIPProviders(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadConfigRequiresFullRecordName(t *testing.T) {
+	for _, name := range []string{"@", "home", "home."} {
+		env := baseEnv()
+		env["CLOUDFLARE_RECORD_NAME"] = name
+		if _, err := loadConfig(envFunc(env)); err == nil || !strings.Contains(err.Error(), "full") {
+			t.Errorf("CLOUDFLARE_RECORD_NAME=%q: err = %v, want an error asking for the full name", name, err)
+		}
+	}
+}

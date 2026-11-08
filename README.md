@@ -23,7 +23,7 @@ cp .env.example .env
 | `CLOUDFLARE_API_KEY` | Yes | Cloudflare API token (sent as a Bearer token) |
 | `CLOUDFLARE_ZONE_ID` | Yes | Zone ID, shown on the zone's Overview page in the Cloudflare dashboard |
 | `CLOUDFLARE_RECORD_ID` | Yes | ID of the `A` record to update |
-| `CLOUDFLARE_RECORD_NAME` | Yes | Record name: in full (`home.example.com`), relative to the zone (`home`), or `@` for the apex. Unicode names are accepted |
+| `CLOUDFLARE_RECORD_NAME` | Yes | The record's full name, e.g. `home.example.com`. Unicode names are accepted |
 | `SYNC_INTERVAL` | No | How often to check the public IP, as a Go duration such as `10m`. Between `30s` and `24h` (default `5m`) |
 | `CLOUDFLARE_RECORD_TTL` | No | Record TTL in seconds: `1` for automatic, or `30` to `86400`. Cloudflare only accepts values below `60` on Enterprise plans (default `300`) |
 | `IP_PROVIDERS` | No | Comma-separated public IP providers, in the order to try them (default: every provider, in the order of the [IP providers](#ip-providers) table) |

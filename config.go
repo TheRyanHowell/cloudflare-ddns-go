@@ -67,6 +67,9 @@ func loadConfig(getenv func(string) string) (config, error) {
 		}
 		*f.dst = v
 	}
+	if !strings.Contains(strings.TrimSuffix(cfg.recordName, "."), ".") {
+		return config{}, fmt.Errorf("CLOUDFLARE_RECORD_NAME %q must be the record's full name, such as home.example.com", cfg.recordName)
+	}
 
 	var err error
 	if cfg.interval, err = syncInterval(getenv); err != nil {

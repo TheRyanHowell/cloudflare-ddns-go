@@ -133,15 +133,15 @@ func TestRecordNameMatchesConfiguredForms(t *testing.T) {
 		want                 bool
 	}{
 		{"home.example.com", "home.example.com", true},
-		{"home.example.com", "home", true},
-		{"a.b.example.com", "a.b", true},
-		{"example.com", "@", true},
+		{"home.example.com", "Home.Example.COM.", true},
 		{"xn--bcher-kva.example.com", "bücher.example.com", true},
-		{"xn--bcher-kva.example.com", "bücher", true},
 		{"*.example.com", "*.example.com", true},
-		{"homeserver.example.com", "home", false},
-		{"home.example.com", "home.example.org", false},
-		{"", "@", false},
+		{"home.example.com", "home", false},
+		{"home.example.com", "home.example", false},
+		{"a.b.example.com", "a.b", false},
+		{"example.com", "@", false},
+		{"homeserver.example.com", "home.example.com", false},
+		{"", "home.example.com", false},
 	}
 	for _, tt := range tests {
 		if got := recordNameMatches(tt.returned, tt.configured); got != tt.want {
