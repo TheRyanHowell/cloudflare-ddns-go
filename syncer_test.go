@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"slices"
 	"strings"
@@ -14,7 +13,7 @@ import (
 
 var errFake = errors.New("fake failure")
 
-func discardLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+func discardLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
 
 type fakeRecord struct {
 	content     string

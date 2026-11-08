@@ -30,7 +30,7 @@ func baseEnv() map[string]string {
 
 func TestLoadConfig(t *testing.T) {
 	env := baseEnv()
-	getenv := func(k string) string { return env[k] }
+	getenv := envFunc(env)
 
 	got, err := loadConfig(getenv)
 	want := config{
@@ -90,7 +90,7 @@ func TestLoadConfigTimings(t *testing.T) {
 			env := baseEnv()
 			env["SYNC_INTERVAL"] = tt.interval
 			env["CLOUDFLARE_RECORD_TTL"] = tt.ttl
-			got, err := loadConfig(func(k string) string { return env[k] })
+			got, err := loadConfig(envFunc(env))
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("err = %v, want containing %q", err, tt.wantErr)
@@ -123,7 +123,7 @@ func TestLoadConfigIPProviders(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			env := baseEnv()
 			env["IP_PROVIDERS"] = tt.value
-			got, err := loadConfig(func(k string) string { return env[k] })
+			got, err := loadConfig(envFunc(env))
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), "IP_PROVIDERS") || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("err = %v, want IP_PROVIDERS error containing %q", err, tt.wantErr)
