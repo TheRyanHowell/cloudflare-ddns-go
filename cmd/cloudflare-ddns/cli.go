@@ -51,8 +51,8 @@ func (a app) execute(ctx context.Context, args []string) int {
 	err := root.ExecuteContext(ctx)
 	var usage *usageError
 	switch {
-	case err == nil, ctx.Err() != nil:
-		// An interrupted command exits cleanly, like the daemon.
+	case err == nil, ctx.Err() != nil && errors.Is(err, context.Canceled):
+		// A command stopped by an interrupt exits cleanly, like the daemon.
 		return exitOK
 	case errors.As(err, &usage):
 		printf(a.stderr, "Error: %v\n\n%s", usage, usage.cmd.UsageString())

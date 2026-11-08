@@ -2,6 +2,7 @@ package main
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -65,7 +66,7 @@ func overlay(base func(string) string, flags *pflag.FlagSet) func(string) string
 	flags.Visit(func(f *pflag.Flag) {
 		// An empty value, such as an unset shell variable, leaves the
 		// environment in charge.
-		if s, ok := settingFor(f.Name); ok && f.Value.String() != "" {
+		if s, ok := settingFor(f.Name); ok && strings.TrimSpace(f.Value.String()) != "" {
 			set[s.env] = f.Value.String()
 		}
 	})

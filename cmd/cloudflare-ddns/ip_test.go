@@ -92,3 +92,13 @@ func TestInterruptedCommandExitsCleanly(t *testing.T) {
 		t.Errorf("exit %d, stdout %q, stderr %q; want 0 and no output after an interrupt", code, out.String(), errOut.String())
 	}
 }
+
+func TestRealFailureDuringInterruptStillFails(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	a, _, errOut := newTestApp(map[string]string{})
+	// sync fails on missing settings before it makes any request.
+	if code := a.execute(ctx, []string{"sync"}); code != exitFailure || !strings.Contains(errOut.String(), "is not set") {
+		t.Errorf("exit %d, stderr %q; want 1 and the config error despite the interrupt", code, errOut.String())
+	}
+}
