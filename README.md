@@ -47,6 +47,7 @@ docker compose logs -f
 
 - Records are always written as DNS-only (not proxied), with the configured TTL.
 - Only IPv4 is supported.
+- The container runs with least privilege: a non-root user (UID 65532), a read-only filesystem, no Linux capabilities and `no-new-privileges`.
 - The public IP comes from the first provider in `IP_PROVIDERS` that answers. Providers are reached over HTTPS, and the default list spans eight independent networks: `cloudflare`, `amazon`, `akamai`, `opendns`, `ripe`, `hetzner`, `mullvad`, `ipinfo`, `ipify` and `icanhazip`. See [IP providers](docs/ip-providers.md).
 - A provider that fails is skipped for a while, and a local network outage costs only a few requests per sync. See [failure handling](docs/failure-handling.md).
 - Temporary Cloudflare errors are retried at the next sync. A rejected token or a wrong record ID makes the daemon report unhealthy and exit after an hour, so it retries hourly.

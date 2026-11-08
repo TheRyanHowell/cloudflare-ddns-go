@@ -7,6 +7,11 @@ services:
     env_file:
       - .env
     restart: always
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "/cloudflare-ddns", "healthcheck"]
       interval: 1m

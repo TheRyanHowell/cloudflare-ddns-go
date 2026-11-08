@@ -14,4 +14,6 @@ FROM scratch AS final
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=build /cloudflare-ddns /cloudflare-ddns
 
+USER 65532:65532
+
 ENTRYPOINT ["/cloudflare-ddns"]
