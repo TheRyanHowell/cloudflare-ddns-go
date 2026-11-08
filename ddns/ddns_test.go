@@ -283,3 +283,22 @@ func TestNewDefaults(t *testing.T) {
 	s.health.MarkSuccess()
 	s.health.MarkPermanentFailure(errFake)
 }
+
+func TestOptionsIgnoreInvalidValues(t *testing.T) {
+	s := New(&fakeRecord{}, &fakeLookup{},
+		WithLogger(nil), WithHealthReporter(nil), WithPermanentCheck(nil),
+		WithInterval(0), WithStartupRetryDelay(-time.Second), WithExitDelay(-time.Second))
+	if s.logger == nil || s.health == nil || s.isPermanent == nil {
+		t.Errorf("nil options replaced defaults: logger %v, health %v, isPermanent nil %v", s.logger, s.health, s.isPermanent == nil)
+	}
+	if s.interval != defaultInterval || s.startupRetryDelay != defaultStartupRetryDelay || s.exitDelay != defaultExitDelay {
+		t.Errorf("durations = %v, %v, %v; want the defaults", s.interval, s.startupRetryDelay, s.exitDelay)
+	}
+}
+
+func TestZeroDelaysMeanNoWait(t *testing.T) {
+	s := New(&fakeRecord{}, &fakeLookup{}, WithStartupRetryDelay(0), WithExitDelay(0))
+	if s.startupRetryDelay != 0 || s.exitDelay != 0 {
+		t.Errorf("delays = %v, %v; want zero kept", s.startupRetryDelay, s.exitDelay)
+	}
+}

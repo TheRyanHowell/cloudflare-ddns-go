@@ -205,3 +205,9 @@ func TestNewRecordDefaults(t *testing.T) {
 		t.Errorf("NewRecord() = %+v, want the Cloudflare API with the default timeout", r)
 	}
 }
+
+func TestNewRecordIgnoresNilHTTPClient(t *testing.T) {
+	if r := NewRecord(RecordConfig{}, WithHTTPClient(nil)); r.client == nil {
+		t.Error("WithHTTPClient(nil) left no client")
+	}
+}

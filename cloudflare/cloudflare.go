@@ -66,7 +66,13 @@ type Record struct {
 type Option func(*Record)
 
 // WithHTTPClient replaces the default client.
-func WithHTTPClient(c *http.Client) Option { return func(r *Record) { r.client = c } }
+func WithHTTPClient(c *http.Client) Option {
+	return func(r *Record) {
+		if c != nil {
+			r.client = c
+		}
+	}
+}
 
 // WithBaseURL replaces the Cloudflare API base URL, for tests.
 func WithBaseURL(url string) Option { return func(r *Record) { r.baseURL = url } }

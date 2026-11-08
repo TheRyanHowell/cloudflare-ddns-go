@@ -51,28 +51,61 @@ type Syncer struct {
 // Option configures New.
 type Option func(*Syncer)
 
+// Options given a nil value, a non-positive interval or a negative delay leave
+// the default in place. A zero delay means no wait.
+
 // WithLogger sets the logger.
-func WithLogger(l *slog.Logger) Option { return func(s *Syncer) { s.logger = l } }
+func WithLogger(l *slog.Logger) Option {
+	return func(s *Syncer) {
+		if l != nil {
+			s.logger = l
+		}
+	}
+}
 
 // WithHealthReporter sets where sync outcomes are reported.
-func WithHealthReporter(h HealthReporter) Option { return func(s *Syncer) { s.health = h } }
+func WithHealthReporter(h HealthReporter) Option {
+	return func(s *Syncer) {
+		if h != nil {
+			s.health = h
+		}
+	}
+}
 
 // WithPermanentCheck sets how Run tells errors that retrying cannot fix from
 // transient ones. By default no error is permanent.
 func WithPermanentCheck(isPermanent func(error) bool) Option {
-	return func(s *Syncer) { s.isPermanent = isPermanent }
+	return func(s *Syncer) {
+		if isPermanent != nil {
+			s.isPermanent = isPermanent
+		}
+	}
 }
 
 // WithInterval sets how often Run syncs.
-func WithInterval(d time.Duration) Option { return func(s *Syncer) { s.interval = d } }
+func WithInterval(d time.Duration) Option { return func(s *Syncer) { setPositive(&s.interval, d) } }
 
 // WithStartupRetryDelay sets the wait between attempts to read the record at startup.
 func WithStartupRetryDelay(d time.Duration) Option {
-	return func(s *Syncer) { s.startupRetryDelay = d }
+	return func(s *Syncer) { setNonNegative(&s.startupRetryDelay, d) }
 }
 
 // WithExitDelay sets how long Run waits before returning a permanent failure.
-func WithExitDelay(d time.Duration) Option { return func(s *Syncer) { s.exitDelay = d } }
+func WithExitDelay(d time.Duration) Option {
+	return func(s *Syncer) { setNonNegative(&s.exitDelay, d) }
+}
+
+func setPositive(dst *time.Duration, d time.Duration) {
+	if d > 0 {
+		*dst = d
+	}
+}
+
+func setNonNegative(dst *time.Duration, d time.Duration) {
+	if d >= 0 {
+		*dst = d
+	}
+}
 
 // New returns a Syncer that keeps record pointed at the address lookup reports.
 func New(record RecordStore, lookup IPSource, opts ...Option) *Syncer {
