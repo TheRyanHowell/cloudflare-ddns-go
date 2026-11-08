@@ -227,21 +227,15 @@ func dohIPv4(body string) string {
 	if err := p.SkipAllQuestions(); err != nil {
 		return ""
 	}
-	for {
-		rh, err := p.AnswerHeader()
-		if err != nil {
-			return ""
-		}
-		if rh.Type != dnsmessage.TypeA || !strings.EqualFold(rh.Name.String(), opendnsMyIPName) {
-			if err := p.SkipAnswer(); err != nil {
-				return ""
-			}
-			continue
-		}
-		a, err := p.AResource()
-		if err != nil {
-			return ""
-		}
-		return netip.AddrFrom4(a.A).String()
+	answers, err := p.AllAnswers()
+	if err != nil {
+		return ""
 	}
+	for _, rr := range answers {
+		a, ok := rr.Body.(*dnsmessage.AResource)
+		if ok && strings.EqualFold(rr.Header.Name.String(), opendnsMyIPName) {
+			return netip.AddrFrom4(a.A).String()
+		}
+	}
+	return ""
 }
