@@ -7,3 +7,9 @@ services:
     env_file:
       - .env
     restart: always
+    healthcheck:
+      test: ["CMD", "/cloudflare-ddns", "healthcheck"]
+      interval: 1m
+      timeout: 5s
+      retries: 3
+      start_period: 30s
