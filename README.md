@@ -91,7 +91,7 @@ golangci-lint run
 go build -o cloudflare-ddns
 ```
 
-CI runs formatting, the tests, golangci-lint (including `govet`), govulncheck and a Docker build on every push to `master` and on pull requests.
+CI runs the tests, golangci-lint (including `gofmt` and `govet`), govulncheck and a Docker build on every push to `master` and on pull requests.
 
 ## License
 

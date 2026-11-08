@@ -23,10 +23,6 @@ jobs:
         with:
           go-version-file: go.mod
           check-latest: true
-      - name: Check formatting
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then echo "$unformatted"; exit 1; fi
       - run: go test -race -cover ./...
 
   vuln:
